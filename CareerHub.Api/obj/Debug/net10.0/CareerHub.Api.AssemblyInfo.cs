@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("CareerHub.Api")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+d0da4469305784b8192448b60d6ea64a7eeb6b8a")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+417cd8c17b52a637bdd2a4883ecbd7858bc3caeb")]
 [assembly: System.Reflection.AssemblyProductAttribute("CareerHub.Api")]
 [assembly: System.Reflection.AssemblyTitleAttribute("CareerHub.Api")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
