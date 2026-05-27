@@ -32,3 +32,4 @@ D:\BitCube\CareerHub\CareerHub.Api\obj\Debug\net10.0\refint\CareerHub.Api.dll
 D:\BitCube\CareerHub\CareerHub.Api\obj\Debug\net10.0\CareerHub.Api.pdb
 D:\BitCube\CareerHub\CareerHub.Api\obj\Debug\net10.0\CareerHub.Api.genruntimeconfig.cache
 D:\BitCube\CareerHub\CareerHub.Api\obj\Debug\net10.0\ref\CareerHub.Api.dll
+D:\BitCube\CareerHub\CareerHub.Api\obj\Debug\net10.0\CareerHub.Api.sourcelink.json
