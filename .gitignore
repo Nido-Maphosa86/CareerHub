@@ -1,0 +1,23 @@
+## .NET build artefacts
+bin/
+obj/
+out/
+*.user
+*.suo
+*.userprefs
+
+## Rider / Visual Studio / VS Code
+.idea/
+.vs/
+.vscode/
+
+## OS noise
+.DS_Store
+Thumbs.db
+
+## Logs
+*.log
+
+## Local overrides
+appsettings.Local.json
+.env
