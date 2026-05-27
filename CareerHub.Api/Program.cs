@@ -1,4 +1,4 @@
-using Scalar.AspNetCore;
+using cd.AspNetCore;
 
 // Phase 1: Builder - Register the services into the app
 // Dependency injection container
