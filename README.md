@@ -1,7 +1,6 @@
-# CareerHub API — Assignment 1.1
+# CareerHub API — Assignment 1.2
 
-A small .NET 10 Web API that returns a list of fake job postings.
-This is the first part of the CareerHub job board backend.
+Continues from Assignment 1.1. The API now supports creating, updating and deleting job listings, enforces a data contract through DTOs and validation, and returns all errors in a standardised Problem Details format.
 
 ---
 
@@ -9,27 +8,34 @@ This is the first part of the CareerHub job board backend.
 
 ```
 CareerHub.Api/
-├── CareerHub.Api.csproj       the project file (lists the .NET version and packages)
-├── Program.cs                 the entry point that starts the app
-├── JobListingStore.cs         the fake "database" — 4 jobs kept in memory
+├── CareerHub.Api.csproj              the project file (lists the .NET version and packages)
+├── Program.cs                        the entry point that starts the app
 ├── Models/
-│   └── JobListing.cs          a record that defines what a job looks like
+│   ├── JobListing.cs                 a record that defines what a job looks like
+│   └── JobType.cs                    enum — FullTime, PartTime, Contract, Internship
+├── Data/
+│   └── JobListingStore.cs            the fake "database" — 4 jobs kept in memory
+├── DTOs/
+│   ├── CreateJobRequest.cs           what the client sends to create a job
+│   ├── UpdateJobRequest.cs           what the client sends to replace a job
+│   └── JobResponse.cs                what the API returns (includes SalaryDisplay)
 ├── Controllers/
-│   └── JobsController.cs      handles incoming requests to /jobs
+│   └── JobsController.cs             handles all incoming requests to /jobs
 └── Properties/
-    └── launchSettings.json    tells `dotnet run` to open Scalar in the browser
+    └── launchSettings.json           tells `dotnet run` to open Scalar in the browser
 ```
 
 ---
 
 ## What it does
 
-The API has two endpoints:
-
-| Request           | What happens                  | Response                      |
-| ----------------- | ----------------------------- | ----------------------------- |
-| `GET /jobs`       | Returns all 4 jobs            | 200 OK                        |
-| `GET /jobs/{id}`  | Returns one job by id         | 200 OK if found, 404 if not   |
+| Request            | What happens                        | Response                    |
+| ------------------ | ----------------------------------- | --------------------------- |
+| `GET /jobs`        | Returns all job listings            | 200 OK                      |
+| `GET /jobs/{id}`   | Returns one job by id               | 200 OK if found, 404 if not |
+| `POST /jobs`       | Creates a new job listing           | 201 Created, 400, or 409    |
+| `PUT /jobs/{id}`   | Fully replaces an existing job      | 200 OK, 400, or 404         |
+| `DELETE /jobs/{id}`| Removes a job listing               | 204 No Content or 404       |
 
 The `id` is a GUID (a long random string of letters and numbers,
 e.g. `c0a80101-7d9b-4f3a-8c4e-12345abc6def`).
@@ -55,6 +61,27 @@ The assignment asked us to pick one and explain why. I went with
   stays the same.
 
 Minimal APIs would have worked too.
+
+---
+
+## Design Decisions
+
+### Why PostedAt belongs in JobResponse but not CreateJobRequest
+
+PostedAt is set by the server at the exact moment a job is created — the client has no say in when that is. If we allowed the client to supply it, they could submit a job with a past date to make it look more established than it is. Since the server owns this value, it makes sense to include it in the response so the frontend can display things like "Posted 3 days ago", but it must never appear in the request DTO.
+
+### Salary cross-field validation approach
+
+Standard Data Annotations like `[Range]` and `[Required]` only inspect a single field in isolation — they cannot compare two fields against each other. To enforce that SalaryMax must be greater than SalaryMin when both are provided, I implemented `IValidatableObject` on the `CreateJobRequest` and `UpdateJobRequest` records. This interface adds a `Validate()` method that runs automatically after all individual annotations pass. The benefit is that the controller never touches salary logic — if the check fails, `[ApiController]` intercepts it and returns a 400 Problem Details response before the controller method even runs.
+
+### PUT returns 200 OK with body (not 204 No Content)
+
+I chose 200 with the updated `JobResponse` body. The React frontend needs to update its local state after a successful PUT. Returning the updated job means the client immediately has the confirmed server version without making a second GET request to find out what was actually saved. 204 would be semantically clean but would force an extra round-trip on every edit.
+
+### DELETE returns 404 for a missing ID
+
+If a client sends DELETE for a job that does not exist, the API returns 404 Not Found rather than 204. A 204 would imply the operation succeeded — but nothing was actually removed, which is misleading. On a job board, a recruiter managing their listings should know if the job they are trying to delete is already gone — perhaps a colleague removed it, or the client has a stale ID. The 404 provides that useful signal instead of silently pretending the deletion happened.
+
 ---
 
 ## How to run it
@@ -88,19 +115,16 @@ straight from the browser, no Postman needed.
 
 In Scalar:
 
-1. Click **Jobs** in the left sidebar.
-2. Click **GET /Jobs** → **Send**. You should see 4 jobs come back.
-   Copy the `id` of any one of them.
-3. Click **GET /Jobs/{id}** → paste the `id` you just copied → **Send**.
-   You should see that single job. (200 OK)
-4. Change a few characters of the `id` and click **Send** again. You
-   should now see a "Not Found" error. (404)
-
-
+1. **Validation failure** — POST with an empty body → expect 400 Problem Details.
+2. **Salary cross-field failure** — POST with SalaryMax less than SalaryMin → expect 400.
+3. **Successful creation** — POST a valid job → copy the URL from the Location header → GET it → confirm PostedAt and SalaryDisplay appear correctly.
+4. **Duplicate guard** — POST the exact same job again → expect 409 Conflict.
+5. **Not found** — PUT or GET with a random GUID → expect 404.
+6. **Deletion** — DELETE a job → GET it → expect 404.
 
 ---
 
-##  async/await
+## A note on async/await
 
 Every endpoint is marked `async` even though reading from memory
 doesn't actually need to be async. Why?
@@ -114,10 +138,9 @@ doesn't actually need to be async. Why?
   for something like `await _dbContext.Jobs.ToListAsync()` — and the
   rest of the code doesn't change.
 
-
-
 ---
 
+## Git history
 
 To see the branches visually:
 
