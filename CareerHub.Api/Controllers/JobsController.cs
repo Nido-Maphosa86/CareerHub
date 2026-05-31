@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using CareerHub.Api.Models;
 using CareerHub.Api.Data;
 using CareerHub.Api.DTOs;
+using CareerHub.Api.Exceptions;
 
 namespace CareerHub.Api.Controllers;
 
@@ -19,8 +20,6 @@ public class JobsController : ControllerBase
     }
 
     // ── GET /jobs/{id} ────────────────────────────────────────────────────
-    // The ":guid" constraint means the framework rejects non-GUID segments
-    // with a 400 before our code even runs.
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<JobResponse>> GetJobByIdAsync(Guid id)
     {
@@ -28,60 +27,50 @@ public class JobsController : ControllerBase
 
         var job = JobListingStore.Jobs.FirstOrDefault(j => j.id == id);
 
-        // Guard clause: never return null. Never return 200 with an empty body.
-        // 404 tells the client exactly what happened.
+        // Controller no longer handles HTTP — it throws a domain exception.
+        // GlobalExceptionHandler translates this to 404 Problem Details.
         if (job is null)
-            return NotFound(); // HTTP 404 Not Found
+            throw new JobNotFoundException(id);
 
-        return Ok(MapToResponse(job)); // HTTP 200 OK
+        return Ok(MapToResponse(job));
     }
 
     // ── POST /jobs ────────────────────────────────────────────────────────
-    // [ApiController] runs [Required] and [Range] validation automatically.
-    // IValidatableObject on CreateJobRequest handles the SalaryMax > SalaryMin check.
-    // Neither check needs any code here — the controller stays clean.
     [HttpPost]
     public async Task<ActionResult<JobResponse>> CreateJobAsync([FromBody] CreateJobRequest request)
     {
         await Task.Delay(50);
 
-        // 1. Idempotency guard — reject if same title + company already exists.
-        //    Case-insensitive so "Software Engineer" and "software engineer" are the same job.
+        // Idempotency guard — throw instead of returning Conflict()
         bool isDuplicate = JobListingStore.Jobs.Any(j =>
             string.Equals(j.Title, request.Title, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(j.Company, request.Company, StringComparison.OrdinalIgnoreCase));
 
         if (isDuplicate)
-            return Conflict(); // HTTP 409 Conflict — ProblemDetails fills in the body
+            throw new DuplicateJobListingException(request.Title, request.Company);
 
-        // 2. Map DTO → domain model.
-        //    Server sets PostedAt and IsActive — client never supplies these.
+        // Map DTO → domain model — server sets PostedAt and IsActive
         var newJob = new JobListing(
             Guid.NewGuid(),
             request.Title,
             request.Description,
             request.Company,
             request.Location,
-            request.Type!.Value,    // Type is JobType? with [Required] — safe to unwrap here
+            request.Type!.Value,
             request.SalaryMin,
             request.SalaryMax,
-            DateTime.UtcNow,        // server owns this
-            true                    // server owns this — active by default
+            DateTime.UtcNow,
+            true
         );
 
-        // 3. Save
         JobListingStore.Jobs.Add(newJob);
 
-        // 4. Map domain model → response DTO
         var response = MapToResponse(newJob);
 
-        // 5. Return 201 Created with a Location header pointing to GET /jobs/{id}
         return CreatedAtAction(nameof(GetJobByIdAsync), new { id = response.id }, response);
     }
 
     // ── PUT /jobs/{id} ────────────────────────────────────────────────────
-    // Fully replaces editable fields. PostedAt and IsActive are preserved —
-    // a PUT must never reset server-owned values.
     [HttpPut("{id:guid}")]
     public async Task<ActionResult<JobResponse>> UpdateJobAsync(Guid id, [FromBody] UpdateJobRequest request)
     {
@@ -89,11 +78,10 @@ public class JobsController : ControllerBase
 
         var existingJob = JobListingStore.Jobs.FirstOrDefault(j => j.id == id);
 
+        // Throw instead of return NotFound() — GlobalExceptionHandler handles it
         if (existingJob is null)
-            return NotFound(); // HTTP 404
+            throw new JobNotFoundException(id);
 
-        // `with` expression creates a new record, copying all unchanged fields.
-        // PostedAt and IsActive are not listed here — they carry over untouched.
         var updatedJob = existingJob with
         {
             Title       = request.Title,
@@ -103,13 +91,13 @@ public class JobsController : ControllerBase
             Type        = request.Type!.Value,
             SalaryMin   = request.SalaryMin,
             SalaryMax   = request.SalaryMax
+            // PostedAt and IsActive are preserved — not listed here
         };
 
-        // Replace in store
         JobListingStore.Jobs.Remove(existingJob);
         JobListingStore.Jobs.Add(updatedJob);
 
-        return Ok(MapToResponse(updatedJob)); // HTTP 200 OK with updated body
+        return Ok(MapToResponse(updatedJob));
     }
 
     // ── DELETE /jobs/{id} ─────────────────────────────────────────────────
@@ -120,19 +108,19 @@ public class JobsController : ControllerBase
 
         var job = JobListingStore.Jobs.FirstOrDefault(j => j.id == id);
 
+        // Throw instead of return NotFound() — GlobalExceptionHandler handles it
         if (job is null)
-            return NotFound(); // HTTP 404 — resource does not exist
+            throw new JobNotFoundException(id);
 
         JobListingStore.Jobs.Remove(job);
 
-        return NoContent(); // HTTP 204 — success, nothing to return
+        return NoContent(); // 204 — success, nothing to return
     }
 
     // ─────────────────────────────────────────────────────────────────────
     // Private helpers
     // ─────────────────────────────────────────────────────────────────────
 
-    // Maps a domain model to the response DTO, computing SalaryDisplay inline.
     private static JobResponse MapToResponse(JobListing job) =>
         new(
             job.id,
@@ -148,7 +136,6 @@ public class JobsController : ControllerBase
             job.IsActive
         );
 
-    // Produces a human-readable salary string — never stored, always computed.
     private static string ComputeSalaryDisplay(decimal? min, decimal? max) =>
         (min, max) switch
         {
