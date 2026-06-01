@@ -99,6 +99,26 @@ In Assignment 1.2, every controller method that could fail had to know about HTT
 
 ---
 
+### Stateless Authentication — Session vs JWT
+
+Session-based authentication stores the user's login state on the server. Every request hits the server, which looks up the session from a database or memory store. This works fine for a single server, but when you scale horizontally — adding more servers to handle more traffic — each server has its own memory and does not know about sessions stored on another. You would need a shared session store just to make authentication work across instances.
+
+JWT is stateless: the token itself contains all the information — who you are, what your role is, and when it expires. Any server can verify a JWT using only the secret key, with no shared database needed. For CareerHub, if we eventually run three server instances behind a load balancer, all three can validate the same token independently without talking to each other.
+
+---
+
+### 401 Unauthorized vs 403 Forbidden
+
+401 Unauthorized means "I don't know who you are." The client has not sent a token, the token is expired, or the signature does not match. `UseAuthentication()` produces this — before authorisation even runs, the request fails identity verification.
+
+403 Forbidden means "I know exactly who you are, but you are not allowed to do this." The token is valid and the identity is confirmed, but the role on the token does not match what the endpoint requires. `UseAuthorization()` produces this — it only runs after authentication has already succeeded. This is why middleware order matters: `UseAuthentication()` must come before `UseAuthorization()`.
+
+---
+
+### JWT Token Storage
+
+`localStorage` is accessible to any JavaScript running on the page. If the site has even a small XSS vulnerability, an attacker's injected script can read every token in `localStorage` and use it to impersonate the user from anywhere. The safer alternatives are HttpOnly cookies — the browser sends them automatically with every request but JavaScript cannot read them at all, so an XSS attack cannot steal what it cannot see — or in-memory storage, where the token lives only in a JavaScript variable for the page's lifetime and disappears on refresh.
+
 ## How to run it
 
 You need the **.NET 10 SDK** installed. Check what you have:
