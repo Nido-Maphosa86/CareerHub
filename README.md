@@ -1,6 +1,6 @@
-# CareerHub API — Assignment 1.3
+# CareerHub API — Assignment 1.4
 
-Continues from Assignment 1.2. Error handling is now centralised — controllers throw domain exceptions, and a single GlobalExceptionHandler translates them into RFC 7807 Problem Details responses. Serilog replaces the default logger with structured, queryable output.
+Continues from Assignment 1.3. The API is now secured with JWT Bearer authentication and role-based access control. CORS is configured for the Next.js frontend, a login endpoint issues signed tokens, and all mutation endpoints require an Employer role.
 
 ---
 
@@ -11,23 +11,24 @@ CareerHub.Api/
 ├── CareerHub.Api.csproj              the project file (lists the .NET version and packages)
 ├── Program.cs                        the entry point that starts the app
 ├── Models/
-│   ├── JobListing.cs                 a record that defines what a job 
-
-│   └── JobType.cs                    enum — FullTime, PartTime, 
-
+│   ├── JobListing.cs                 a record that defines what a job looks like
+│   └── JobType.cs                    enum — FullTime, PartTime, Contract, Internship
 ├── Data/
 │   └── JobListingStore.cs            the fake "database" — 4 jobs kept in memory
 ├── DTOs/
 │   ├── CreateJobRequest.cs           what the client sends to create a job
 │   ├── UpdateJobRequest.cs           what the client sends to replace a job
-│   └── JobResponse.cs                what the API returns (includes SalaryDisplay)
+│   ├── JobResponse.cs                what the API returns (includes SalaryDisplay)
+│   ├── LoginRequest.cs               what the client sends to log in
+│   └── LoginResponse.cs              what the API returns after a successful login
 ├── Exceptions/
 │   ├── JobNotFoundException.cs       thrown when a job ID does not exist
 │   └── DuplicateJobListingException.cs  thrown when title + company already exists
 ├── Middleware/
 │   └── GlobalExceptionHandler.cs    translates exceptions to Problem Details responses
 ├── Controllers/
-│   └── JobsController.cs             handles all incoming requests to /jobs
+│   ├── JobsController.cs             handles all incoming requests to /jobs
+│   └── AuthController.cs             handles POST /auth/login and GET /auth/me
 └── Properties/
     └── launchSettings.json           tells `dotnet run` to open Scalar in the browser
 ```
@@ -36,13 +37,15 @@ CareerHub.Api/
 
 ## What it does
 
-| Request             | What happens                        | Response                    |
-| ------------------- | ----------------------------------- | --------------------------- |
-| `GET /jobs`         | Returns all job listings            | 200 OK                      |
-| `GET /jobs/{id}`    | Returns one job by id               | 200 OK if found, 404 if not |
-| `POST /jobs`        | Creates a new job listing           | 201 Created, 400, or 409    |
-| `PUT /jobs/{id}`    | Fully replaces an existing job      | 200 OK, 400, or 404         |
-| `DELETE /jobs/{id}` | Removes a job listing               | 204 No Content or 404       |
+| Request              | What happens                              | Response                    |
+| -------------------- | ----------------------------------------- | --------------------------- |
+| `GET /jobs`          | Returns all job listings                  | 200 OK                      |
+| `GET /jobs/{id}`     | Returns one job by id                     | 200 OK if found, 404 if not |
+| `POST /jobs`         | Creates a new job listing (Employer only) | 201 Created, 400, or 409    |
+| `PUT /jobs/{id}`     | Fully replaces an existing job (Employer) | 200 OK, 400, or 404         |
+| `DELETE /jobs/{id}`  | Removes a job listing (Employer only)     | 204 No Content or 404       |
+| `POST /auth/login`   | Returns a signed JWT token                | 200 OK or 401               |
+| `GET /auth/me`       | Returns current user's username and role  | 200 OK or 401               |
 
 The `id` is a GUID (a long random string of letters and numbers,
 e.g. `c0a80101-7d9b-4f3a-8c4e-12345abc6def`).
@@ -97,15 +100,11 @@ In Assignment 1.2, every controller method that could fail had to know about HTT
 
 `Console.WriteLine` outputs a flat string that cannot be searched, filtered, or alerted on. Serilog writes JSON instead — each log entry is an object with named fields like `RequestPath`, `StatusCode`, `Elapsed`, and `ExceptionType`. In production, a log aggregator like Seq or Datadog can ingest those JSON entries and let you query "show me all 404s in the last hour" or "alert when 500s spike above 10 per minute." With flat strings, that kind of analysis is impossible.
 
----
-
 ### Stateless Authentication — Session vs JWT
 
 Session-based authentication stores the user's login state on the server. Every request hits the server, which looks up the session from a database or memory store. This works fine for a single server, but when you scale horizontally — adding more servers to handle more traffic — each server has its own memory and does not know about sessions stored on another. You would need a shared session store just to make authentication work across instances.
 
 JWT is stateless: the token itself contains all the information — who you are, what your role is, and when it expires. Any server can verify a JWT using only the secret key, with no shared database needed. For CareerHub, if we eventually run three server instances behind a load balancer, all three can validate the same token independently without talking to each other.
-
----
 
 ### 401 Unauthorized vs 403 Forbidden
 
@@ -113,11 +112,11 @@ JWT is stateless: the token itself contains all the information — who you are,
 
 403 Forbidden means "I know exactly who you are, but you are not allowed to do this." The token is valid and the identity is confirmed, but the role on the token does not match what the endpoint requires. `UseAuthorization()` produces this — it only runs after authentication has already succeeded. This is why middleware order matters: `UseAuthentication()` must come before `UseAuthorization()`.
 
----
-
 ### JWT Token Storage
 
 `localStorage` is accessible to any JavaScript running on the page. If the site has even a small XSS vulnerability, an attacker's injected script can read every token in `localStorage` and use it to impersonate the user from anywhere. The safer alternatives are HttpOnly cookies — the browser sends them automatically with every request but JavaScript cannot read them at all, so an XSS attack cannot steal what it cannot see — or in-memory storage, where the token lives only in a JavaScript variable for the page's lifetime and disappears on refresh.
+
+---
 
 ## How to run it
 
@@ -161,9 +160,15 @@ In Scalar:
 2. **Salary cross-field failure** — POST with SalaryMax less than SalaryMin → expect 400.
 3. **Successful creation** — POST a valid job → copy the URL from the Location header → GET it → confirm PostedAt and SalaryDisplay appear correctly.
 4. **Duplicate guard** — POST the exact same job again → expect 409 Conflict with the custom message.
-5. **Not found** — GET or PUT with a random GUID → expect 404 Problem Details (thrown by controller, handled by GlobalExceptionHandler).
+5. **Not found** — GET or PUT with a random GUID → expect 404 Problem Details.
 6. **Deletion** — DELETE a job → GET it → expect 404.
 7. **Error logging** — after triggering a 404 or 409, check the terminal for the GlobalExceptionHandler log entry.
+8. **Anonymous GET** — GET /jobs with no token → expect 200 OK. Public read stays open.
+9. **401 Unauthorized** — POST /jobs with no token → expect 401 Unauthorized.
+10. **Token generation** — POST /auth/login with `username: employer` and `password: password123` → copy the token → paste into jwt.io → confirm `sub` and `role` claims are present.
+11. **Authenticated POST** — add `Authorization: Bearer <token>` header → POST /jobs → expect 201 Created.
+12. **403 Forbidden** — temporarily change the role in AuthController to "User", get a new token, use it to call DELETE /jobs/{id} → expect 403 Forbidden.
+13. **Claims endpoint** — GET /auth/me with a valid Employer token → confirm username and role in the response.
 
 ---
 
