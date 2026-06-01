@@ -1,4 +1,7 @@
+using System.Text;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
 using Serilog;
 using CareerHub.Api.Middleware;
@@ -31,11 +34,44 @@ try
             options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
         });
 
-    builder.Services.AddOpenApi();      // Built-in OpenAPI document generation
+    builder.Services.AddOpenApi();
 
-    builder.Services.AddExceptionHandler<GlobalExceptionHandler>(); // Typed exception handler — translates domain exceptions to Problem Details
+    builder.Services.AddExceptionHandler<GlobalExceptionHandler>(); // Translates domain exceptions to Problem Details
 
     builder.Services.AddProblemDetails(); // RFC 7807 standardised error format
+
+    // CORS — allows the Next.js frontend on port 3000 to call this API.
+    // Browsers block cross-origin requests by default; this opts the API in.
+    builder.Services.AddCors(options =>
+    {
+        options.AddPolicy("FrontEndPolicy", policy =>
+        {
+            policy.WithOrigins("http://localhost:3000") // Next.js dev port
+                  .AllowAnyHeader()                     // allows Authorization, Content-Type, etc.
+                  .AllowAnyMethod();                    // allows GET, POST, PUT, DELETE, etc.
+        });
+    });
+
+    // JWT secret key — read from config, never hardcoded in source code
+    var jwtSecretKey = builder.Configuration["Jwt:SecretKey"]!;
+
+    // JWT Bearer authentication — validates the token on every protected request
+    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+        .AddJwtBearer(options =>
+        {
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuer           = false, // not checking who issued the token (our own API)
+                ValidateAudience         = false, // not checking who the token is intended for
+                ValidateLifetime         = true,  // reject expired tokens
+                ValidateIssuerSigningKey = true,  // verify the signature matches our secret key
+                IssuerSigningKey         = new SymmetricSecurityKey(
+                    Encoding.UTF8.GetBytes(jwtSecretKey)
+                )
+            };
+        });
+
+    builder.Services.AddAuthorization(); // required for [Authorize(Roles = "...")] to evaluate correctly
 
     // ════════════════════════════════════════════════════
     // TRANSITION — Build() seals the DI container.
@@ -48,9 +84,16 @@ try
     // Order matters. Top to bottom.
     // ════════════════════════════════════════════════════
 
-    app.UseSerilogRequestLogging(); // Logs every HTTP request + final response automatically.
-                                    // Must come BEFORE UseExceptionHandler so exceptions
-                                    // are still caught and the request is logged correctly.
+    app.UseSerilogRequestLogging(); // Log every HTTP request — must be first so every request is captured
+
+    app.UseCors("FrontEndPolicy");  // Must be early to intercept browser preflight OPTIONS requests
+                                    // before authentication or exception handling runs
+
+    app.UseAuthentication();        // Reads the JWT from the Authorization header and populates User
+                                    // Must come before UseAuthorization
+
+    app.UseAuthorization();         // Checks [Authorize] attributes — must come after UseAuthentication
+                                    // You cannot check what someone is allowed to do before knowing who they are
 
     app.UseExceptionHandler();      // Activates GlobalExceptionHandler — catches all thrown exceptions
 
