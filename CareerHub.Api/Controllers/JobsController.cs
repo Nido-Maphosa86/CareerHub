@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.EntityFrameworkCore;
 using CareerHub.Api.Models;
 using CareerHub.Api.Data;
 using CareerHub.Api.DTOs;
@@ -9,26 +10,37 @@ namespace CareerHub.Api.Controllers;
 
 [ApiController]
 [Route("[controller]")]
-public class JobsController : ControllerBase
+public class JobsController(CareerHubDbContext db) : ControllerBase
 {
+    // db is injected by the DI container — same pattern as class BookingsController(BookingDbContext db)
+    // Registered as Scoped — one instance per HTTP request, then disposed.
 
     // ── GET /jobs ─────────────────────────────────────────────────────────
-    // Anonymous — no token required. Public read access stays open.
+    // Anonymous — no token required
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<JobResponse>>> GetJobsAsync()
+    public async Task<ActionResult<IEnumerable<JobResponse>>> GetJobsAsync(
+        CancellationToken cancellationToken)
     {
-        await Task.Delay(200);
-        return Ok(JobListingStore.Jobs.Select(MapToResponse));
+        // ToListAsync() translates to: SELECT * FROM job_listings ORDER BY posted_at DESC
+        // Returns an empty list — not a 404 — when no jobs exist yet
+        var jobs = await db.JobListings
+            .OrderByDescending(j => j.PostedAt)
+            .ToListAsync(cancellationToken);
+
+        return Ok(jobs.Select(MapToResponse));
     }
 
     // ── GET /jobs/{id} ────────────────────────────────────────────────────
-    // Anonymous — no token required.
+    // Anonymous — no token required
     [HttpGet("{id:guid}")]
-    public async Task<ActionResult<JobResponse>> GetJobByIdAsync(Guid id)
+    public async Task<ActionResult<JobResponse>> GetJobByIdAsync(
+        Guid id,
+        CancellationToken cancellationToken)
     {
-        await Task.Delay(50);
-
-        var job = JobListingStore.Jobs.FirstOrDefault(j => j.id == id);
+        // FindAsync checks the change tracker first (in case the entity was
+        // already loaded this request), then hits the database.
+        // More efficient than FirstOrDefaultAsync for primary key lookups.
+        var job = await db.JobListings.FindAsync([id], cancellationToken);
 
         if (job is null)
             throw new JobNotFoundException(id);
@@ -37,20 +49,27 @@ public class JobsController : ControllerBase
     }
 
     // ── POST /jobs ────────────────────────────────────────────────────────
-    // Requires a valid JWT with the Employer role.
+    // Requires a valid JWT with the Employer role
     [Authorize(Roles = "Employer")]
     [HttpPost]
-    public async Task<ActionResult<JobResponse>> CreateJobAsync([FromBody] CreateJobRequest request)
+    public async Task<ActionResult<JobResponse>> CreateJobAsync(
+        [FromBody] CreateJobRequest request,
+        CancellationToken cancellationToken)
     {
-        await Task.Delay(50);
-
-        bool isDuplicate = JobListingStore.Jobs.Any(j =>
-            string.Equals(j.Title, request.Title, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(j.Company, request.Company, StringComparison.OrdinalIgnoreCase));
+        // AnyAsync generates an EXISTS query in SQL —
+        // more efficient than loading the full entity just to check existence
+        bool isDuplicate = await db.JobListings.AnyAsync(j =>
+            j.Title.ToLower() == request.Title.ToLower() &&
+            j.Company.ToLower() == request.Company.ToLower(),
+            cancellationToken);
 
         if (isDuplicate)
             throw new DuplicateJobListingException(request.Title, request.Company);
 
+        // Map DTO → entity using the constructor — same pattern as class code.
+        // Server sets PostedAt and IsActive — client never supplies these.
+        // We generate the Guid here so we know the ID before saving —
+        // this lets us build the 201 Location header immediately.
         var newJob = new JobListing(
             Guid.NewGuid(),
             request.Title,
@@ -60,11 +79,15 @@ public class JobsController : ControllerBase
             request.Type!.Value,
             request.SalaryMin,
             request.SalaryMax,
-            DateTime.UtcNow,
-            true
+            DateTime.UtcNow, // server owns this
+            true             // server owns this — active by default
         );
 
-        JobListingStore.Jobs.Add(newJob);
+        // Add() only updates the change tracker — no database write yet
+        db.JobListings.Add(newJob);
+
+        // SaveChangesAsync() is where the INSERT statement runs
+        await db.SaveChangesAsync(cancellationToken);
 
         var response = MapToResponse(newJob);
 
@@ -72,51 +95,61 @@ public class JobsController : ControllerBase
     }
 
     // ── PUT /jobs/{id} ────────────────────────────────────────────────────
-    // Requires a valid JWT with the Employer role.
+    // Requires a valid JWT with the Employer role
     [Authorize(Roles = "Employer")]
     [HttpPut("{id:guid}")]
-    public async Task<ActionResult<JobResponse>> UpdateJobAsync(Guid id, [FromBody] UpdateJobRequest request)
+    public async Task<ActionResult<JobResponse>> UpdateJobAsync(
+        Guid id,
+        [FromBody] UpdateJobRequest request,
+        CancellationToken cancellationToken)
     {
-        await Task.Delay(50);
-
-        var existingJob = JobListingStore.Jobs.FirstOrDefault(j => j.id == id);
+        var existingJob = await db.JobListings.FindAsync([id], cancellationToken);
 
         if (existingJob is null)
             throw new JobNotFoundException(id);
 
-        var updatedJob = existingJob with
-        {
-            Title       = request.Title,
-            Description = request.Description,
-            Company     = request.Company,
-            Location    = request.Location,
-            Type        = request.Type!.Value,
-            SalaryMin   = request.SalaryMin,
-            SalaryMax   = request.SalaryMax
-        };
+        // Mutate the properties directly on the tracked entity —
+        // same pattern as class code (existingBooking.Title = request.Title)
+        // EF Core's change tracker has a snapshot of the original values.
+        // SaveChangesAsync() compares current vs snapshot and generates
+        // a targeted UPDATE for only the changed columns.
+        // PostedAt and IsActive are intentionally not touched here —
+        // a PUT must not reset server-owned fields.
+        existingJob.Title       = request.Title;
+        existingJob.Description = request.Description;
+        existingJob.Company     = request.Company;
+        existingJob.Location    = request.Location;
+        existingJob.Type        = request.Type!.Value;
+        existingJob.SalaryMin   = request.SalaryMin;
+        existingJob.SalaryMax   = request.SalaryMax;
 
-        JobListingStore.Jobs.Remove(existingJob);
-        JobListingStore.Jobs.Add(updatedJob);
+        // One SaveChangesAsync at the end — not once per property.
+        // The change tracker batches all mutations into a single UPDATE.
+        await db.SaveChangesAsync(cancellationToken);
 
-        return Ok(MapToResponse(updatedJob));
+        return Ok(MapToResponse(existingJob));
     }
 
     // ── DELETE /jobs/{id} ─────────────────────────────────────────────────
-    // Requires a valid JWT with the Employer role.
+    // Requires a valid JWT with the Employer role
     [Authorize(Roles = "Employer")]
     [HttpDelete("{id:guid}")]
-    public async Task<ActionResult> DeleteJobAsync(Guid id)
+    public async Task<ActionResult> DeleteJobAsync(
+        Guid id,
+        CancellationToken cancellationToken)
     {
-        await Task.Delay(50);
-
-        var job = JobListingStore.Jobs.FirstOrDefault(j => j.id == id);
+        var job = await db.JobListings.FindAsync([id], cancellationToken);
 
         if (job is null)
             throw new JobNotFoundException(id);
 
-        JobListingStore.Jobs.Remove(job);
+        // Remove() marks the entity for deletion in the change tracker
+        db.JobListings.Remove(job);
 
-        return NoContent();
+        // The DELETE statement runs here
+        await db.SaveChangesAsync(cancellationToken);
+
+        return NoContent(); // 204 — success, nothing to return
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -125,7 +158,7 @@ public class JobsController : ControllerBase
 
     private static JobResponse MapToResponse(JobListing job) =>
         new(
-            job.id,
+            job.Id,
             job.Title,
             job.Description,
             job.Company,
