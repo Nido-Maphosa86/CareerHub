@@ -1,29 +1,20 @@
 namespace CareerHub.Api.Models;
 
-// WHY A CLASS AND NOT A RECORD?
-// EF Core's change tracker works by loading an entity, taking a snapshot
-// of its state, and detecting changes when SaveChangesAsync() is called.
-// Records are immutable (init-only properties) — the change tracker
-// cannot mutate them to reflect what came back from the database.
-// A plain class with public setters is what EF Core expects.
+// WHAT CHANGED FROM 2.1:
+// - string Company removed — replaced with CompanyId (FK) and Company (navigation)
+// - ICollection<Application> Applications added — the listings received applications
 //
-// NOTE: No data annotations ([Key], [Required], [MaxLength]) here.
-// All database configuration lives in CareerHubDbContext using the Fluent API.
-// This keeps the entity clean and decoupled from the persistence layer.
+// No data annotations — all configuration is in CareerHubDbContext Fluent API.
 
 public class JobListing
 {
-    // Parameterless constructor — EF Core uses this when loading
-    // entities from the database (materialising results from a query).
     public JobListing() { }
 
-    // Convenience constructor — used in the controller when creating
-    // a brand-new listing before saving to the database.
     public JobListing(
         Guid id,
         string title,
         string description,
-        string company,
+        Guid companyId,
         string location,
         JobType type,
         decimal? salaryMin,
@@ -34,7 +25,7 @@ public class JobListing
         Id          = id;
         Title       = title;
         Description = description;
-        Company     = company;
+        CompanyId   = companyId;
         Location    = location;
         Type        = type;
         SalaryMin   = salaryMin;
@@ -49,21 +40,24 @@ public class JobListing
 
     public string Description { get; set; } = string.Empty;
 
-    public string Company { get; set; } = string.Empty;
+    // ── Company relationship ───────────────────────────────────────────────
+    // CompanyId is the foreign key column stored in the database.
+    // Company is the navigation property — EF Core populates it when loaded.
+    public Guid CompanyId { get; set; }
+    public Company Company { get; set; } = null!;
 
     public string Location { get; set; } = string.Empty;
 
-    // Stored as a string in the database ("FullTime" not 0)
-    // configured in OnModelCreating via .HasConversion<string>()
     public JobType Type { get; set; }
 
     public decimal? SalaryMin { get; set; }
 
     public decimal? SalaryMax { get; set; }
 
-    // Server sets this at creation time — never supplied by the client
     public DateTime PostedAt { get; set; } = DateTime.UtcNow;
 
-    // Server sets this — defaults to true on creation
     public bool IsActive { get; set; } = true;
+
+    // ── Applications received ─────────────────────────────────────────────
+    public ICollection<Application> Applications { get; set; } = [];
 }
