@@ -91,7 +91,7 @@ public class JobsController(CareerHubDbContext db) : ControllerBase
 
         var response = MapToResponse(newJob);
 
-        return CreatedAtAction(nameof(GetJobByIdAsync), new { id = response.id }, response);
+        return Created($"/jobs/{response.id}", response);
     }
 
     // ── PUT /jobs/{id} ────────────────────────────────────────────────────
