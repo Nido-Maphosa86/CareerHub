@@ -4,8 +4,6 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace CareerHub.Api.Middleware;
 
-// IExceptionHandler is the interface for typed exception handling.
-// AddExceptionHandler<T>() registers it; UseExceptionHandler() activates it.
 public class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger) : IExceptionHandler
 {
     public async ValueTask<bool> TryHandleAsync(
@@ -13,18 +11,20 @@ public class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger) : IE
         Exception exception,
         CancellationToken cancellationToken)
     {
-        // 1. Log the error before doing anything else
+        // 1. Log the error
         logger.LogError(exception, "An exception occurred: {Message}", exception.Message);
 
-        // 2. Translate the domain exception to an HTTP status code
+        // 2. Map exception type to HTTP status code
         var statusCode = exception switch
         {
             JobNotFoundException         => StatusCodes.Status404NotFound,
+            CompanyNotFoundException     => StatusCodes.Status404NotFound,
             DuplicateJobListingException => StatusCodes.Status409Conflict,
+            DuplicateApplicationException => StatusCodes.Status409Conflict,
             _                            => StatusCodes.Status500InternalServerError
         };
 
-        // 3. Construct the Problem Details response shape
+        // 3. Construct Problem Details response
         var problemDetails = new ProblemDetails
         {
             Status   = statusCode,
@@ -33,15 +33,14 @@ public class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger) : IE
             Instance = httpContext.Request.Path
         };
 
-        // 4. Write the status code and JSON body back to the client
+        // 4. Write the response
         httpContext.Response.StatusCode  = statusCode;
         httpContext.Response.ContentType = "application/problem+json";
         await httpContext.Response.WriteAsJsonAsync(problemDetails, cancellationToken);
 
-        return true; // true = exception has been handled, stop propagation
+        return true;
     }
 
-    // Maps an HTTP status code to a short human-readable title
     private static string GetTitle(int statusCode) => statusCode switch
     {
         StatusCodes.Status404NotFound  => "Resource Not Found",
