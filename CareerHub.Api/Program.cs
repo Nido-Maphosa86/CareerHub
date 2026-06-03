@@ -1,9 +1,11 @@
 using System.Text;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
 using Serilog;
+using CareerHub.Api.Data;
 using CareerHub.Api.Middleware;
 
 // ════════════════════════════════════════════════════
@@ -40,38 +42,49 @@ try
 
     builder.Services.AddProblemDetails(); // RFC 7807 standardised error format
 
-    // CORS — allows the Next.js frontend on port 3000 to call this API.
-    // Browsers block cross-origin requests by default; this opts the API in.
+    // CORS — allows the Next.js frontend on port 3000 to call this API
     builder.Services.AddCors(options =>
     {
         options.AddPolicy("FrontEndPolicy", policy =>
         {
-            policy.WithOrigins("http://localhost:3000") // Next.js dev port
-                  .AllowAnyHeader()                     // allows Authorization, Content-Type, etc.
-                  .AllowAnyMethod();                    // allows GET, POST, PUT, DELETE, etc.
+            policy.WithOrigins("http://localhost:3000")
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
         });
     });
 
-    // JWT secret key — read from config, never hardcoded in source code
+    // ── EF Core + PostgreSQL ──────────────────────────────────────────────
+    // AddDbContext registers CareerHubDbContext as Scoped —
+    // one instance per HTTP request. This is the correct lifetime
+    // for a unit of work: all reads and writes in a single request
+    // share the same DbContext and change tracker.
+    // Connection string is read from appsettings.Development.json —
+    // never hardcoded in source code.
+    builder.Services.AddDbContext<CareerHubDbContext>(options =>
+        options.UseNpgsql(
+            builder.Configuration.GetConnectionString("DefaultConnection")
+        )
+    );
+
+    // JWT secret key — read from config, never hardcoded
     var jwtSecretKey = builder.Configuration["Jwt:SecretKey"]!;
 
-    // JWT Bearer authentication — validates the token on every protected request
     builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         .AddJwtBearer(options =>
         {
             options.TokenValidationParameters = new TokenValidationParameters
             {
-                ValidateIssuer           = false, // not checking who issued the token (our own API)
-                ValidateAudience         = false, // not checking who the token is intended for
+                ValidateIssuer           = false,
+                ValidateAudience         = false,
                 ValidateLifetime         = true,  // reject expired tokens
-                ValidateIssuerSigningKey = true,  // verify the signature matches our secret key
+                ValidateIssuerSigningKey = true,  // verify the signature
                 IssuerSigningKey         = new SymmetricSecurityKey(
                     Encoding.UTF8.GetBytes(jwtSecretKey)
                 )
             };
         });
 
-    builder.Services.AddAuthorization(); // required for [Authorize(Roles = "...")] to evaluate correctly
+    builder.Services.AddAuthorization(); // required for [Authorize(Roles = "...")] to work
 
     // ════════════════════════════════════════════════════
     // TRANSITION — Build() seals the DI container.
@@ -84,30 +97,27 @@ try
     // Order matters. Top to bottom.
     // ════════════════════════════════════════════════════
 
-    app.UseSerilogRequestLogging(); // Log every HTTP request — must be first so every request is captured
+    app.UseSerilogRequestLogging(); // log every request — must be first
 
-    app.UseCors("FrontEndPolicy");  // Must be early to intercept browser preflight OPTIONS requests
-                                    // before authentication or exception handling runs
+    app.UseCors("FrontEndPolicy");  // handle browser preflight before auth
 
-    app.UseAuthentication();        // Reads the JWT from the Authorization header and populates User
-                                    // Must come before UseAuthorization
+    app.UseExceptionHandler();      // catch all thrown exceptions
 
-    app.UseAuthorization();         // Checks [Authorize] attributes — must come after UseAuthentication
-                                    // You cannot check what someone is allowed to do before knowing who they are
+    app.UseStatusCodePages();       // add body to empty error responses
 
-    app.UseExceptionHandler();      // Activates GlobalExceptionHandler — catches all thrown exceptions
+    app.UseAuthentication();        // read the JWT, populate User
 
-    app.UseStatusCodePages();       // Fills empty 4xx/5xx responses with Problem Details body
+    app.UseAuthorization();         // check [Authorize] attributes
 
     if (app.Environment.IsDevelopment())
     {
-        app.MapOpenApi();             // Serves /openapi/v1.json
-        app.MapScalarApiReference();  // Serves the Scalar UI at /scalar/v1
+        app.MapOpenApi();             // serves /openapi/v1.json
+        app.MapScalarApiReference();  // serves the Scalar UI at /scalar/v1
     }
 
-    app.MapControllers(); // Activates attribute routing for all [ApiController] classes
+    app.MapControllers(); // activate attribute routing for all [ApiController] classes
 
-    app.Run(); // Starts the Kestrel web server — blocks until the process exits
+    app.Run();
 }
 catch (Exception ex)
 {
@@ -115,5 +125,5 @@ catch (Exception ex)
 }
 finally
 {
-    Log.CloseAndFlush(); // Ensure all buffered log entries are written before the process exits
+    Log.CloseAndFlush(); // ensure all buffered log entries are written before exit
 }
