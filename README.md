@@ -1,6 +1,6 @@
-# CareerHub API — Assignment 1.4
+# CareerHub API — Assignment 2.1
 
-Continues from Assignment 1.3. The API is now secured with JWT Bearer authentication and role-based access control. CORS is configured for the Next.js frontend, a login endpoint issues signed tokens, and all mutation endpoints require an Employer role.
+Continues from Assignment 1.4. The in-memory job listing store has been replaced with a real PostgreSQL database backed by EF Core 10. Data now survives server restarts, deployments, and failures.
 
 ---
 
@@ -11,10 +11,11 @@ CareerHub.Api/
 ├── CareerHub.Api.csproj              the project file (lists the .NET version and packages)
 ├── Program.cs                        the entry point that starts the app
 ├── Models/
-│   ├── JobListing.cs                 a record that defines what a job looks like
+│   ├── JobListing.cs                 entity class (converted from record for EF Core)
 │   └── JobType.cs                    enum — FullTime, PartTime, Contract, Internship
 ├── Data/
-│   └── JobListingStore.cs            the fake "database" — 4 jobs kept in memory
+│   └── CareerHubDbContext.cs         EF Core DbContext with Fluent API configuration
+├── Migrations/                       auto-generated EF Core migration files
 ├── DTOs/
 │   ├── CreateJobRequest.cs           what the client sends to create a job
 │   ├── UpdateJobRequest.cs           what the client sends to replace a job
@@ -39,16 +40,13 @@ CareerHub.Api/
 
 | Request              | What happens                              | Response                    |
 | -------------------- | ----------------------------------------- | --------------------------- |
-| `GET /jobs`          | Returns all job listings                  | 200 OK                      |
+| `GET /jobs`          | Returns all job listings from the database | 200 OK                     |
 | `GET /jobs/{id}`     | Returns one job by id                     | 200 OK if found, 404 if not |
 | `POST /jobs`         | Creates a new job listing (Employer only) | 201 Created, 400, or 409    |
 | `PUT /jobs/{id}`     | Fully replaces an existing job (Employer) | 200 OK, 400, or 404         |
 | `DELETE /jobs/{id}`  | Removes a job listing (Employer only)     | 204 No Content or 404       |
 | `POST /auth/login`   | Returns a signed JWT token                | 200 OK or 401               |
 | `GET /auth/me`       | Returns current user's username and role  | 200 OK or 401               |
-
-The `id` is a GUID (a long random string of letters and numbers,
-e.g. `c0a80101-7d9b-4f3a-8c4e-12345abc6def`).
 
 ---
 
@@ -58,19 +56,13 @@ The assignment asked us to pick one and explain why. I went with
 **Controllers** because:
 
 - **It's the style we used in class.** Same `[ApiController]`,
-  `[Route]`, `[HttpGet]` and `Task<ActionResult<T>>` setup. Doing it
-  differently would make the code harder to compare to my class notes.
+  `[Route]`, `[HttpGet]` and `Task<ActionResult<T>>` setup.
 - **Each URL is easy to find.** The HTTP verb and the route sit right
   above the method that handles them.
 - **`[ApiController]` gives us things for free.** It automatically
-  returns a 400 error if someone sends bad input, and it figures out
-  where each input comes from (route, query string, body) without us
-  having to spell it out.
-- **It scales.** When CareerHub grows to have Users, Companies and
-  Applications, each one gets its own controller file. The pattern
-  stays the same.
-
-Minimal APIs would have worked too.
+  returns a 400 error if someone sends bad input.
+- **It scales.** When CareerHub grows, each resource gets its own
+  controller file. The pattern stays the same.
 
 ---
 
@@ -82,73 +74,91 @@ PostedAt is set by the server at the exact moment a job is created — the clien
 
 ### Salary cross-field validation approach
 
-Standard Data Annotations like `[Range]` and `[Required]` only inspect a single field in isolation — they cannot compare two fields against each other. To enforce that SalaryMax must be greater than SalaryMin when both are provided, I implemented `IValidatableObject` on the `CreateJobRequest` and `UpdateJobRequest` records. This interface adds a `Validate()` method that runs automatically after all individual annotations pass. The benefit is that the controller never touches salary logic — if the check fails, `[ApiController]` intercepts it and returns a 400 Problem Details response before the controller method even runs.
+Standard Data Annotations like `[Range]` and `[Required]` only inspect a single field in isolation — they cannot compare two fields against each other. To enforce that SalaryMax must be greater than SalaryMin when both are provided, I implemented `IValidatableObject` on the `CreateJobRequest` and `UpdateJobRequest` records. The benefit is that the controller never touches salary logic — if the check fails, `[ApiController]` intercepts it and returns a 400 Problem Details response before the controller method even runs.
 
 ### PUT returns 200 OK with body (not 204 No Content)
 
-I chose 200 with the updated `JobResponse` body. The React frontend needs to update its local state after a successful PUT. Returning the updated job means the client immediately has the confirmed server version without making a second GET request to find out what was actually saved. 204 would be semantically clean but would force an extra round-trip on every edit.
+I chose 200 with the updated `JobResponse` body. The React frontend needs to update its local state after a successful PUT. Returning the updated job means the client immediately has the confirmed server version without making a second GET request.
 
 ### DELETE returns 404 for a missing ID
 
-If a client sends DELETE for a job that does not exist, the API returns 404 Not Found rather than 204. A 204 would imply the operation succeeded — but nothing was actually removed, which is misleading. On a job board, a recruiter managing their listings should know if the job they are trying to delete is already gone — perhaps a colleague removed it, or the client has a stale ID. The 404 provides that useful signal instead of silently pretending the deletion happened.
+If a client sends DELETE for a job that does not exist, the API returns 404 Not Found rather than 204. A 204 would imply the operation succeeded — but nothing was actually removed, which is misleading.
 
 ### Controller Thinning
 
-In Assignment 1.2, every controller method that could fail had to know about HTTP. Writing `return NotFound()` in three different places means three different points where the error shape could differ — one developer adds a detail message, another forgets, a third uses the wrong status code. When you throw `JobNotFoundException` instead, the controller only cares about one question: does this job exist or not? The `GlobalExceptionHandler` is the single place that decides "JobNotFoundException always means 404 with exactly this Problem Details shape." You write that mapping once and it works everywhere, consistently. The controller becomes pure business logic with no web-layer concerns mixed in.
+When you throw `JobNotFoundException` instead of returning `NotFound()`, the controller only cares about one question: does this job exist or not? The `GlobalExceptionHandler` is the single place that decides the HTTP status code and Problem Details shape. You write that mapping once and it works everywhere consistently.
 
 ### Structured Logging
 
-`Console.WriteLine` outputs a flat string that cannot be searched, filtered, or alerted on. Serilog writes JSON instead — each log entry is an object with named fields like `RequestPath`, `StatusCode`, `Elapsed`, and `ExceptionType`. In production, a log aggregator like Seq or Datadog can ingest those JSON entries and let you query "show me all 404s in the last hour" or "alert when 500s spike above 10 per minute." With flat strings, that kind of analysis is impossible.
+`Console.WriteLine` outputs a flat string that cannot be searched or filtered. Serilog writes JSON — each log entry has named fields like `RequestPath`, `StatusCode`, and `Elapsed`. In production, a log aggregator can query "show me all 404s in the last hour" or alert when 500s spike.
 
 ### Stateless Authentication — Session vs JWT
 
-Session-based authentication stores the user's login state on the server. Every request hits the server, which looks up the session from a database or memory store. This works fine for a single server, but when you scale horizontally — adding more servers to handle more traffic — each server has its own memory and does not know about sessions stored on another. You would need a shared session store just to make authentication work across instances.
-
-JWT is stateless: the token itself contains all the information — who you are, what your role is, and when it expires. Any server can verify a JWT using only the secret key, with no shared database needed. For CareerHub, if we eventually run three server instances behind a load balancer, all three can validate the same token independently without talking to each other.
+JWT is stateless: the token itself contains all the information — who you are, what your role is, and when it expires. Any server can verify a JWT using only the secret key, with no shared database needed. For CareerHub, if we eventually run three server instances behind a load balancer, all three can validate the same token independently.
 
 ### 401 Unauthorized vs 403 Forbidden
 
-401 Unauthorized means "I don't know who you are." The client has not sent a token, the token is expired, or the signature does not match. `UseAuthentication()` produces this — before authorisation even runs, the request fails identity verification.
-
-403 Forbidden means "I know exactly who you are, but you are not allowed to do this." The token is valid and the identity is confirmed, but the role on the token does not match what the endpoint requires. `UseAuthorization()` produces this — it only runs after authentication has already succeeded. This is why middleware order matters: `UseAuthentication()` must come before `UseAuthorization()`.
+401 means "I don't know who you are" — no token, expired token, or bad signature. `UseAuthentication()` produces this. 403 means "I know who you are but you are not allowed" — valid token but wrong role. `UseAuthorization()` produces this. This is why `UseAuthentication()` must come before `UseAuthorization()` in the pipeline.
 
 ### JWT Token Storage
 
-`localStorage` is accessible to any JavaScript running on the page. If the site has even a small XSS vulnerability, an attacker's injected script can read every token in `localStorage` and use it to impersonate the user from anywhere. The safer alternatives are HttpOnly cookies — the browser sends them automatically with every request but JavaScript cannot read them at all, so an XSS attack cannot steal what it cannot see — or in-memory storage, where the token lives only in a JavaScript variable for the page's lifetime and disappears on refresh.
+`localStorage` is accessible to any JavaScript on the page. If the site has an XSS vulnerability, an attacker can steal every token. The safer alternatives are HttpOnly cookies — JavaScript cannot read them at all — or in-memory storage where the token disappears on page refresh.
+
+### The Change Tracker
+
+EF Core's change tracker takes a snapshot of every entity it loads from the database. When you mutate a property — `existingJob.Title = request.Title` — only the in-memory object changes. The snapshot is untouched. When you call `SaveChangesAsync()`, EF Core compares the current state against the snapshot and generates the minimum SQL needed: if only Title changed, only Title is included in the UPDATE statement. You call it once at the end of an operation, not once per property change, because each property change is just an in-memory update. The actual database write — and the transaction that wraps it — happens once when you explicitly ask for it with `SaveChangesAsync()`.
+
+### Migrations as Version Control
+
+A migration file is the SQL definition of your schema changes expressed as C# code. If you commit code that references a new table or column but forget to commit the migration that creates it, your teammate pulls the code and runs the app — but their database does not have that table yet, so every query fails at runtime. Committing the migration alongside the code that requires it ensures everyone on the team has a clear, ordered script to bring their local database up to date. The `__EFMigrationsHistory` table records which migrations have already been applied, so EF Core knows exactly where each environment is and only runs the ones that are missing.
+
+### Connection String Security
+
+`appsettings.json` is committed to source control, which means anyone with access to the repository can read it. Putting a database username and password there is a real security risk. `appsettings.Development.json` is loaded only when `ASPNETCORE_ENVIRONMENT` is `Development` and should be added to `.gitignore` so it is never committed. For production, the safer alternative is environment variables set directly on the server, or a secrets manager like Azure Key Vault, where the credentials never appear in any file at all.
 
 ---
 
-## How to run it
+## How to Run
 
-You need the **.NET 10 SDK** installed. Check what you have:
+### Prerequisites
+
+- **.NET 10 SDK** — check with `dotnet --version`
+- **Docker Desktop** — must be running before starting the app
+
+### First time setup
+
+**1. Start PostgreSQL container:**
 
 ```bash
-dotnet --version
+docker run -d --name careerhub-postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=CareerHub -p 5432:5432 postgres:latest
 ```
 
-If it doesn't start with `10.`, install it from
-https://dotnet.microsoft.com/download/dotnet/10.0
-
-Then start the app:
+**2. Apply migrations:**
 
 ```bash
 cd CareerHub.Api
+dotnet ef database update
+```
+
+**3. Start the app:**
+
+```bash
 dotnet run
 ```
 
-A browser tab should open automatically at:
+### Every time after that
 
-> **http://localhost:5000/scalar/v1**
-
-That's the **Scalar UI** — a tool that lets you test the endpoints
-straight from the browser, no Postman needed.
-
-Watch the terminal — Serilog will print structured output like:
+Always follow this order:
 
 ```
-[10:42:15 INF] Starting up the CareerHub API...
-[10:42:16 INF] HTTP GET /jobs responded 200 in 12.4 ms
+1. Open Docker Desktop
+2. docker start careerhub-postgres
+3. dotnet run
 ```
+
+Browser opens at **http://localhost:5000/scalar/v1**
+
+The app will crash on startup if Docker is not running — it cannot connect to the database.
 
 ---
 
@@ -156,35 +166,19 @@ Watch the terminal — Serilog will print structured output like:
 
 In Scalar:
 
-1. **Validation failure** — POST with an empty body → expect 400 Problem Details.
-2. **Salary cross-field failure** — POST with SalaryMax less than SalaryMin → expect 400.
-3. **Successful creation** — POST a valid job → copy the URL from the Location header → GET it → confirm PostedAt and SalaryDisplay appear correctly.
-4. **Duplicate guard** — POST the exact same job again → expect 409 Conflict with the custom message.
-5. **Not found** — GET or PUT with a random GUID → expect 404 Problem Details.
-6. **Deletion** — DELETE a job → GET it → expect 404.
-7. **Error logging** — after triggering a 404 or 409, check the terminal for the GlobalExceptionHandler log entry.
-8. **Anonymous GET** — GET /jobs with no token → expect 200 OK. Public read stays open.
-9. **401 Unauthorized** — POST /jobs with no token → expect 401 Unauthorized.
-10. **Token generation** — POST /auth/login with `username: employer` and `password: password123` → copy the token → paste into jwt.io → confirm `sub` and `role` claims are present.
-11. **Authenticated POST** — add `Authorization: Bearer <token>` header → POST /jobs → expect 201 Created.
-12. **403 Forbidden** — temporarily change the role in AuthController to "User", get a new token, use it to call DELETE /jobs/{id} → expect 403 Forbidden.
-13. **Claims endpoint** — GET /auth/me with a valid Employer token → confirm username and role in the response.
+1. **Empty start** — GET /jobs → expect empty array `[]`
+2. **Get a token** — POST /auth/login with `username: employer` and `password: password123` → copy the token
+3. **Create a job** — POST /jobs with Bearer token → expect 201 Created
+4. **Survival test** — stop the app (Ctrl+C), restart with `dotnet run`, GET /jobs → job is still there
+5. **Duplicate guard** — POST the same job again → expect 409 Conflict
+6. **Not found** — GET /jobs/{random-guid} → expect 404 Not Found
+7. **Delete** — DELETE /jobs/{id} with Bearer token → expect 204, then GET same id → expect 404
 
 ---
 
 ## A note on async/await
 
-Every endpoint is marked `async` even though reading from memory
-doesn't actually need to be async. Why?
-
-- `async` and `await` tell .NET to **let go of the thread** while it
-  waits for slow things (like a database call). That keeps the API
-  responsive when lots of people hit it at once.
-- We don't have a database yet, so there's nothing slow to wait for.
-  I added `await Task.Delay(200)` to **pretend** there's a slow thing.
-- When a real database is added later, `Task.Delay(200)` gets swapped
-  for something like `await _dbContext.Jobs.ToListAsync()` — and the
-  rest of the code doesn't change.
+Every endpoint is marked `async`. All database operations use `await` — `ToListAsync()`, `FindAsync()`, `SaveChangesAsync()`. This tells .NET to release the thread while waiting for the database, keeping the API responsive under load.
 
 ---
 
