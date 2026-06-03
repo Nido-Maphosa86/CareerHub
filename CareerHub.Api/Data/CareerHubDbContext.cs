@@ -3,82 +3,143 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CareerHub.Api.Data;
 
-// The DbContext is the unit of work for EF Core.
-// It owns the database connection, the change tracker,
-// and provides access to every table through DbSet<T> properties.
-// Registered as Scoped in Program.cs — one instance per HTTP request.
-
 public class CareerHubDbContext(DbContextOptions<CareerHubDbContext> options)
     : DbContext(options)
 {
-    // DbSet<T> represents the job_listings table.
-    // Every LINQ query you write against this property
-    // gets translated into SQL by EF Core at runtime.
-    public DbSet<JobListing> JobListings => Set<JobListing>();
+    // ── DbSets — one per table ────────────────────────────────────────────
+    public DbSet<JobListing>  JobListings  => Set<JobListing>();
+    public DbSet<Company>     Companies    => Set<Company>();
+    public DbSet<Applicant>   Applicants   => Set<Applicant>();
+    public DbSet<Application> Applications => Set<Application>();
+
+    // ── Seeded applicant IDs (fixed so AuthController can reference them) ──
+    // These GUIDs are stable — they match what AuthController puts in the JWT.
+    public static readonly Guid Applicant1Id = Guid.Parse("a0000000-0000-0000-0000-000000000001");
+    public static readonly Guid Applicant2Id = Guid.Parse("a0000000-0000-0000-0000-000000000002");
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.Entity<JobListing>(entity =>
+        // ══════════════════════════════════════════════════════════════════
+        // COMPANY
+        // ══════════════════════════════════════════════════════════════════
+        modelBuilder.Entity<Company>(entity =>
         {
-            // ── Table name ────────────────────────────────────────────
-            // PostgreSQL convention uses lowercase snake_case table names
-            entity.ToTable("job_listings");
+            entity.ToTable("companies");
+            entity.HasKey(c => c.Id);
+            entity.Property(c => c.Id).ValueGeneratedNever();
 
-            // ── Primary key ───────────────────────────────────────────
-            entity.HasKey(j => j.Id);
-
-            // ValueGeneratedNever — our application supplies the Guid before saving.
-            // We know the ID before the database round-trip completes,
-            // which means we can build the 201 Location header immediately.
-            entity.Property(j => j.Id)
-                  .ValueGeneratedNever();
-
-            // ── String constraints ────────────────────────────────────
-            // Enforced at the database level — defence in depth.
-            // The same rules exist in CreateJobRequest via Data Annotations.
-            // Two layers of protection: application code and database.
-
-            entity.Property(j => j.Title)
-                  .IsRequired()
-                  .HasMaxLength(120);
-
-            entity.Property(j => j.Company)
-                  .IsRequired()
-                  .HasMaxLength(80);
-
-            entity.Property(j => j.Location)
+            entity.Property(c => c.Name)
                   .IsRequired()
                   .HasMaxLength(200);
 
-            entity.Property(j => j.Description)
-                  .IsRequired()
-                  .HasMaxLength(2000);
+            entity.Property(c => c.Website).HasMaxLength(500);
+            entity.Property(c => c.Industry).HasMaxLength(100);
 
-            // ── Enum storage ──────────────────────────────────────────
-            // Store JobType as a string ("FullTime") rather than an integer (0).
-            // Consistent with JsonStringEnumConverter in Program.cs.
-            // Makes the database readable without looking up source code.
-            entity.Property(j => j.Type)
+            // Two companies with the same name would be confusing —
+            // enforce uniqueness at the database level
+            entity.HasIndex(c => c.Name).IsUnique();
+        });
+
+        // ══════════════════════════════════════════════════════════════════
+        // JOB LISTING
+        // ══════════════════════════════════════════════════════════════════
+        modelBuilder.Entity<JobListing>(entity =>
+        {
+            entity.ToTable("job_listings");
+            entity.HasKey(j => j.Id);
+            entity.Property(j => j.Id).ValueGeneratedNever();
+
+            entity.Property(j => j.Title).IsRequired().HasMaxLength(120);
+            entity.Property(j => j.Description).IsRequired().HasMaxLength(2000);
+            entity.Property(j => j.Location).IsRequired().HasMaxLength(200);
+            entity.Property(j => j.Type).HasConversion<string>().IsRequired().HasMaxLength(20);
+            entity.Property(j => j.SalaryMin).HasPrecision(18, 2);
+            entity.Property(j => j.SalaryMax).HasPrecision(18, 2);
+
+            entity.HasIndex(j => new { j.Title, j.CompanyId })
+                  .IsUnique()
+                  .HasDatabaseName("ix_job_listings_title_companyid");
+
+            // ── Company → JobListing relationship ─────────────────────────
+            // DELETE BEHAVIOUR: Restrict
+            // A company CANNOT be deleted while it still has job listings.
+            // This forces explicit cleanup — an employer must remove all
+            // listings before the company record can be removed.
+            // Cascade would silently wipe listings, which is dangerous on a job board.
+            entity.HasOne(j => j.Company)
+                  .WithMany(c => c.JobListings)
+                  .HasForeignKey(j => j.CompanyId)
+                  .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ══════════════════════════════════════════════════════════════════
+        // APPLICANT
+        // ══════════════════════════════════════════════════════════════════
+        modelBuilder.Entity<Applicant>(entity =>
+        {
+            entity.ToTable("applicants");
+            entity.HasKey(a => a.Id);
+            entity.Property(a => a.Id).ValueGeneratedNever();
+
+            entity.Property(a => a.Name).IsRequired().HasMaxLength(200);
+            entity.Property(a => a.Email).IsRequired().HasMaxLength(200);
+            entity.Property(a => a.Username).IsRequired().HasMaxLength(100);
+
+            entity.HasIndex(a => a.Email).IsUnique();
+            entity.HasIndex(a => a.Username).IsUnique();
+
+            // ── Seed data — matches AuthController hardcoded credentials ──
+            entity.HasData(
+                new Applicant
+                {
+                    Id       = Applicant1Id,
+                    Name     = "Alice Smith",
+                    Email    = "alice@example.com",
+                    Username = "applicant1"
+                },
+                new Applicant
+                {
+                    Id       = Applicant2Id,
+                    Name     = "Bob Jones",
+                    Email    = "bob@example.com",
+                    Username = "applicant2"
+                }
+            );
+        });
+
+        // ══════════════════════════════════════════════════════════════════
+        // APPLICATION (join entity)
+        // ══════════════════════════════════════════════════════════════════
+        modelBuilder.Entity<Application>(entity =>
+        {
+            entity.ToTable("applications");
+
+            // Composite primary key — one applicant can only apply once per listing.
+            // This is the natural uniqueness rule for an application.
+            entity.HasKey(a => new { a.ApplicantId, a.JobListingId });
+
+            entity.Property(a => a.SubmittedAt).IsRequired();
+
+            // Store status as a string in the database
+            entity.Property(a => a.Status)
                   .HasConversion<string>()
                   .IsRequired()
                   .HasMaxLength(20);
 
-            // ── Decimal precision ─────────────────────────────────────
-            entity.Property(j => j.SalaryMin)
-                  .HasPrecision(18, 2);
+            // ── Application → JobListing ───────────────────────────────────
+            // Cascade: deleting a job listing removes all its applications.
+            // Justified because an application for a non-existent listing is meaningless.
+            entity.HasOne(a => a.JobListing)
+                  .WithMany(j => j.Applications)
+                  .HasForeignKey(a => a.JobListingId)
+                  .OnDelete(DeleteBehavior.Cascade);
 
-            entity.Property(j => j.SalaryMax)
-                  .HasPrecision(18, 2);
-
-            // ── Unique index ──────────────────────────────────────────
-            // Database-level enforcement of the idempotency rule.
-            // DuplicateJobListingException enforces the same rule in
-            // the application layer — this is the database-level safety net.
-            // If two requests slip through at the same millisecond,
-            // the database will reject the second one.
-            entity.HasIndex(j => new { j.Title, j.Company })
-                  .IsUnique()
-                  .HasDatabaseName("ix_job_listings_title_company");
+            // ── Application → Applicant ────────────────────────────────────
+            // Cascade: deleting an applicant removes all their applications.
+            entity.HasOne(a => a.Applicant)
+                  .WithMany(ap => ap.Applications)
+                  .HasForeignKey(a => a.ApplicantId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }
