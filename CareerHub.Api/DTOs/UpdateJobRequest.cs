@@ -3,11 +3,6 @@ using CareerHub.Api.Models;
 
 namespace CareerHub.Api.DTOs;
 
-// What the client sends to fully replace an existing job listing.
-// Fields and validation rules are identical to CreateJobRequest.
-// Kept as a separate type so the two can diverge in future
-// (e.g. if we add partial PATCH support later).
-// The ID always comes from the route — never from the body.
 public record UpdateJobRequest(
 
     [Required(ErrorMessage = "Title is required")]
@@ -15,10 +10,8 @@ public record UpdateJobRequest(
     [MaxLength(120, ErrorMessage = "Title cannot exceed 120 characters")]
     string Title,
 
-    [Required(ErrorMessage = "Company is required")]
-    [MinLength(2,  ErrorMessage = "Company must be at least 2 characters")]
-    [MaxLength(80, ErrorMessage = "Company cannot exceed 80 characters")]
-    string Company,
+    [Required(ErrorMessage = "CompanyId is required")]
+    Guid? CompanyId,
 
     [Required(ErrorMessage = "Location is required")]
     string Location,
@@ -27,7 +20,7 @@ public record UpdateJobRequest(
     [MinLength(20, ErrorMessage = "Description must be at least 20 characters")]
     string Description,
 
-    [Required(ErrorMessage = "Type is required — valid values: FullTime, PartTime, Contract, Internship")]
+    [Required(ErrorMessage = "Type is required")]
     JobType? Type,
 
     [Range(1, double.MaxValue, ErrorMessage = "SalaryMin must be greater than zero")]
