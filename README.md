@@ -364,3 +364,317 @@ Expected: database rejects it with a foreign key violation error.
 | employer | password123 | Employer | Create companies, post jobs, update, delete |
 | applicant1 | password123 | Applicant | Apply for jobs (Alice Smith) |
 | applicant2 | password123 | Applicant | Apply for jobs (Bob Jones) |
+
+
+
+## How to Test — Assignment 2.2
+
+### Prerequisites
+
+```bash
+docker start careerhub-postgres
+cd CareerHub.Api
+dotnet run
+```
+
+Open **http://localhost:5000/scalar/v1**
+
+---
+
+### Credentials
+
+| Username | Password | Role | Who they are |
+| --- | --- | --- | --- |
+| employer | password123 | Employer | Posts and manages jobs |
+| applicant1 | password123 | Applicant | Alice Smith |
+| applicant2 | password123 | Applicant | Bob Jones |
+
+---
+
+### Test 1 — Schema correctness
+
+Open a new terminal and run:
+
+```bash
+docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "\d companies"
+docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "\d applicants"
+docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "\d applications"
+docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "\d job_listings"
+```
+
+**What to confirm:**
+- `companies` has a unique index on `Name` and is referenced by `job_listings`
+- `applications` has a composite primary key on `(ApplicantId, JobListingId)`
+- `job_listings` has a FK to `companies` with `ON DELETE RESTRICT`
+- `applicants` table exists with `applicant1` and `applicant2` already seeded
+
+---
+
+### Test 2 — Relationship enforcement
+
+Try to insert a job with a company ID that does not exist:
+
+```bash
+docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "INSERT INTO job_listings (\"Id\", \"Title\", \"Description\", \"CompanyId\", \"Location\", \"Type\", \"PostedAt\", \"IsActive\") VALUES (gen_random_uuid(), 'Test', 'Test description here', '00000000-0000-0000-0000-000000000099', 'Joburg', 'FullTime', NOW(), true);"
+```
+
+**Expected:** database rejects it with a foreign key violation error.
+
+---
+
+### Test 3 and 4 — N+1 proof (before and after)
+
+#### Step 1 — Enable query logging
+
+Open `Program.cs` and update `AddDbContext`:
+
+```csharp
+builder.Services.AddDbContext<CareerHubDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"))
+           .LogTo(Console.WriteLine, LogLevel.Information)
+);
+```
+
+Restart the app with `dotnet run`.
+
+---
+
+#### Step 2 — Show the N+1 BEFORE fix
+
+Open `Controllers/JobsController.cs` and temporarily replace `GetJobsAsync` with this:
+
+```csharp
+[HttpGet]
+public async Task<ActionResult> GetJobsAsync(CancellationToken cancellationToken)
+{
+    // TEMPORARY — shows N+1 — remove after demo
+    var jobs = await db.JobListings.ToListAsync(cancellationToken);
+    var result = new List<object>();
+    foreach (var job in jobs)
+    {
+        var company = await db.Companies.FindAsync([job.CompanyId], cancellationToken);
+        result.Add(new { job.Title, CompanyName = company?.Name ?? "" });
+    }
+    return Ok(result);
+}
+```
+
+Restart the app. Create 5 companies and 5 job listings (one per company) first — see Test 6 below for the steps. Then call **GET /Jobs**.
+
+**What you see in the terminal — multiple queries:**
+
+```
+SELECT j."Id", j."Title", j."CompanyId", ...
+FROM job_listings AS j
+
+SELECT c."Id", c."Name", ...
+FROM companies AS c
+WHERE c."Id" = '...' LIMIT 1
+
+SELECT c."Id", c."Name", ...
+FROM companies AS c
+WHERE c."Id" = '...' LIMIT 1
+
+-- one query per job listing — this is the N+1 problem
+```
+
+**Screenshot this terminal output — this is the BEFORE the examiner needs to see.**
+
+---
+
+#### Step 3 — Show the fix AFTER
+
+Restore the original `GetJobsAsync` from the zip:
+
+```csharp
+[HttpGet]
+public async Task<ActionResult<IEnumerable<JobResponse>>> GetJobsAsync(
+    CancellationToken cancellationToken)
+{
+    var rawJobs = await db.JobListings
+        .AsNoTracking()
+        .OrderByDescending(j => j.PostedAt)
+        .Select(j => new
+        {
+            j.Id,
+            j.Title,
+            j.Description,
+            CompanyName      = j.Company.Name,
+            j.Location,
+            j.Type,
+            j.SalaryMin,
+            j.SalaryMax,
+            j.PostedAt,
+            j.IsActive,
+            ApplicationCount = j.Applications.Count()
+        })
+        .ToListAsync(cancellationToken);
+
+    return Ok(rawJobs.Select(j => new JobResponse(
+        j.Id, j.Title, j.Description, j.CompanyName,
+        j.Location, j.Type, j.SalaryMin, j.SalaryMax,
+        ComputeSalaryDisplay(j.SalaryMin, j.SalaryMax),
+        j.PostedAt, j.IsActive, j.ApplicationCount
+    )));
+}
+```
+
+Restart the app and call **GET /Jobs** again.
+
+**What you see in the terminal — one query with JOINs:**
+
+```
+SELECT j."Id", j."Title", j."Description",
+       c."Name" AS company_name,
+       j."Location", j."Type", j."SalaryMin", j."SalaryMax",
+       j."PostedAt", j."IsActive",
+       COUNT(a."JobListingId") AS application_count
+FROM job_listings AS j
+LEFT JOIN companies AS c ON j."CompanyId" = c."Id"
+LEFT JOIN applications AS a ON a."JobListingId" = j."Id"
+GROUP BY j."Id", c."Name"
+ORDER BY j."PostedAt" DESC
+```
+
+**Screenshot this terminal output — this is the AFTER.**
+
+#### Step 4 — Remove the logging
+
+Remove `.LogTo(Console.WriteLine, LogLevel.Information)` from `Program.cs` before committing.
+
+---
+
+### Test 5 — Projection proof
+
+Before removing the logging, call **GET /Jobs** and look at the SQL in the terminal.
+
+**Confirm** the SELECT clause only lists the columns in `JobResponse` — no applicant email, no company website, no extra columns from joined tables.
+
+---
+
+### Test 6 — Create companies and job listings
+
+**POST /Auth/login** — get employer token:
+```json
+{ "username": "employer", "password": "password123" }
+```
+
+**POST /Companies** — repeat for each (use employer token):
+```json
+{ "name": "BitCube", "website": "https://bitcube.co.za", "industry": "Technology" }
+{ "name": "Google", "industry": "Technology" }
+{ "name": "Amazon", "industry": "Cloud" }
+{ "name": "Microsoft", "industry": "Software" }
+{ "name": "Netflix", "industry": "Streaming" }
+```
+
+Copy each company `id` from the responses.
+
+**POST /Jobs** — one per company (use employer token):
+```json
+{
+  "title": "Senior Developer",
+  "companyId": "PASTE-COMPANY-ID-HERE",
+  "location": "Bloemfontein",
+  "description": "Build scalable .NET applications for our enterprise platform.",
+  "type": "FullTime",
+  "salaryMin": 45000,
+  "salaryMax": 65000
+}
+```
+
+Expected: **201 Created** for each. Copy one job `id` for the apply tests.
+
+---
+
+### Test 7 — Application tracking
+
+**POST /Auth/login** — get applicant token:
+```json
+{ "username": "applicant1", "password": "password123" }
+```
+
+**POST /Jobs/{id}/apply** — paste a job id in the URL, use applicant token. No body needed.
+
+Expected: **201 Created**
+```json
+{
+  "message": "Application submitted successfully.",
+  "jobListingId": "...",
+  "applicantId": "a0000000-0000-0000-0000-000000000001",
+  "submittedAt": "2026-06-04T...",
+  "status": "Submitted"
+}
+```
+
+**GET /Jobs/{id}** — no token needed.
+
+Expected: **200 OK** with applications array:
+```json
+{
+  "id": "...",
+  "title": "Senior Developer",
+  "companyName": "BitCube",
+  "applications": [
+    {
+      "applicantName": "Alice Smith",
+      "submittedAt": "2026-06-04T...",
+      "status": "Submitted"
+    }
+  ]
+}
+```
+
+---
+
+### Test 8 — Duplicate application
+
+**POST /Jobs/{id}/apply** again — same applicant1 token, same job id.
+
+Expected: **409 Conflict**
+```json
+{
+  "status": 409,
+  "title": "Resource Conflict",
+  "detail": "You have already applied for this job listing."
+}
+```
+
+---
+
+### Test 9 — Different caller applies
+
+**POST /Auth/login** — get applicant2 token:
+```json
+{ "username": "applicant2", "password": "password123" }
+```
+
+**POST /Jobs/{id}/apply** — same job id, applicant2 token.
+
+Expected: **201 Created** — Bob Jones applied successfully.
+
+**GET /Jobs/{id}** — confirm both applicants appear:
+```json
+{
+  "applications": [
+    { "applicantName": "Alice Smith", "status": "Submitted" },
+    { "applicantName": "Bob Jones",   "status": "Submitted" }
+  ]
+}
+```
+
+---
+
+Seeded Applicants
+Two applicants are automatically inserted into the database when migrations are applied. To verify they exist:
+
+bashdocker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "SELECT * FROM applicants;"
+
+Expected output:
+                  Id                  |    Name     |        Email         | Username
+--------------------------------------+-------------+----------------------+------------
+ a0000000-0000-0000-0000-000000000001 | Alice Smith | alice@example.com    | applicant1
+ a0000000-0000-0000-0000-000000000002 | Bob Jones   | bob@example.com      | applicant2
+If the table is empty it means the migration was applied before the seed data was added. Fix it by running:
+bashdotnet ef migrations add SeedApplicants
+dotnet ef database update
