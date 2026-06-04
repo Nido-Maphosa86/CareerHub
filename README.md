@@ -189,3 +189,178 @@ To see the branches visually:
 ```bash
 git log --oneline --graph --all
 ```
+
+---
+
+## How to Test the Endpoints — Assignment 2.2
+
+### Prerequisites
+
+Make sure Docker is running and the app is started:
+
+```bash
+docker start careerhub-postgres
+cd CareerHub.Api
+dotnet run
+```
+
+Open **http://localhost:5000/scalar/v1**
+
+---
+
+### Step 1 — Get an Employer token
+
+**POST /Auth/login**
+
+```json
+{
+  "username": "employer",
+  "password": "password123"
+}
+```
+
+Copy the token from the response. You will use it for all employer actions.
+
+---
+
+### Step 2 — Create a company
+
+**POST /Companies** — add `Authorization: Bearer <employer-token>` header
+
+```json
+{ "name": "BitCube", "website": "https://bitcube.co.za", "industry": "Technology" }
+```
+
+Expected: **201 Created**. Copy the `id` from the response — this is your `companyId`.
+
+Repeat this step to create 4 more companies (needed for the N+1 test):
+
+```json
+{ "name": "Google", "industry": "Technology" }
+{ "name": "Amazon", "industry": "Cloud" }
+{ "name": "Microsoft", "industry": "Software" }
+{ "name": "Netflix", "industry": "Streaming" }
+```
+
+---
+
+### Step 3 — Create job listings (one per company)
+
+**POST /Jobs** — add `Authorization: Bearer <employer-token>` header
+
+Create one listing per company using each company's ID:
+
+```json
+{
+  "title": "Senior Developer",
+  "companyId": "PASTE-COMPANY-ID-HERE",
+  "location": "Bloemfontein",
+  "description": "Build scalable .NET applications for our enterprise platform.",
+  "type": "FullTime",
+  "salaryMin": 45000,
+  "salaryMax": 65000
+}
+```
+
+Expected: **201 Created** for each. Copy one `id` — you will use it for the apply test.
+
+---
+
+### Step 4 — Verify the list endpoint (N+1 fix proof)
+
+**GET /Jobs** — no token needed
+
+Expected: **200 OK** with all listings. Each listing shows `companyName` and `applicationCount`.
+
+Check the terminal — you should see **one SQL statement** with JOIN clauses. This proves the N+1 fix is working.
+
+---
+
+### Step 5 — Apply as applicant1
+
+**POST /Auth/login** with applicant credentials:
+
+```json
+{ "username": "applicant1", "password": "password123" }
+```
+
+Copy the applicant token.
+
+**POST /Jobs/{id}/apply** — paste the job `id` in the URL, use the applicant token, no body needed.
+
+Expected: **201 Created** with application details including `status: "Submitted"`.
+
+---
+
+### Step 6 — Verify the application appears
+
+**GET /Jobs/{id}** — paste the same job id, no token needed.
+
+Expected: **200 OK** with an `applications` array containing:
+- `applicantName`: Alice Smith
+- `submittedAt`: the timestamp
+- `status`: Submitted
+
+---
+
+### Step 7 — Duplicate application (409 test)
+
+**POST /Jobs/{id}/apply** again with the same applicant1 token and same job id.
+
+Expected: **409 Conflict** — "You have already applied for this job listing."
+
+---
+
+### Step 8 — Apply as applicant2 (different caller test)
+
+**POST /Auth/login** with applicant2 credentials:
+
+```json
+{ "username": "applicant2", "password": "password123" }
+```
+
+**POST /Jobs/{id}/apply** — same job id, but now using the applicant2 token.
+
+Expected: **201 Created** — Bob Jones successfully applied to the same job.
+
+**GET /Jobs/{id}** — confirm the `applications` array now shows both Alice Smith and Bob Jones.
+
+---
+
+### Step 9 — Schema correctness (database check)
+
+Open a new terminal and run:
+
+```bash
+docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "\d companies"
+docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "\d applicants"
+docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "\d applications"
+docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "\d job_listings"
+```
+
+Confirm:
+- `companies` has a unique index on `Name` and is referenced by `job_listings`
+- `applications` has a composite primary key on `(ApplicantId, JobListingId)`
+- `job_listings` has a FK to `companies` with `ON DELETE RESTRICT`
+
+---
+
+### Step 10 — Relationship enforcement (database rejects bad data)
+
+Try to insert a job listing with a company ID that does not exist:
+
+```bash
+docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "INSERT INTO job_listings (\"Id\", \"Title\", \"Description\", \"CompanyId\", \"Location\", \"Type\", \"PostedAt\", \"IsActive\") VALUES (gen_random_uuid(), 'Test', 'Test description', '00000000-0000-0000-0000-000000000099', 'Joburg', 'FullTime', NOW(), true);"
+```
+
+Expected: database rejects it with a foreign key violation error.
+
+---
+
+### Credentials summary
+
+| Username | Password | Role | What they can do |
+| -------- | -------- | ---- | ---------------- |
+| employer | password123 | Employer | Create companies, post jobs, update, delete |
+| applicant1 | password123 | Applicant | Apply for jobs (Alice Smith) |
+| applicant2 | password123 | Applicant | Apply for jobs (Bob Jones) |
