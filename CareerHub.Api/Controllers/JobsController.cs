@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using CareerHub.Api.Models;
 using CareerHub.Api.Data;
 using CareerHub.Api.DTOs;
@@ -12,90 +14,154 @@ namespace CareerHub.Api.Controllers;
 [Route("[controller]")]
 public class JobsController(CareerHubDbContext db) : ControllerBase
 {
-    // db is injected by the DI container — same pattern as class BookingsController(BookingDbContext db)
-    // Registered as Scoped — one instance per HTTP request, then disposed.
 
     // ── GET /jobs ─────────────────────────────────────────────────────────
-    // Anonymous — no token required
+    // Anonymous — no token required.
+    //
+    // N+1 FIX: We use a projection (Select) instead of Include.
+    // Without a fix, EF Core would fire:
+    //   1 query for all job listings
+    //   + N queries — one per listing to load the company name
+    //   + N queries — one per listing to count applications
+    //   = 1 + 2N queries total
+    //
+    // With projection, everything is fetched in ONE SQL statement:
+    //   SELECT j.id, j.title, c.name AS company_name, COUNT(a.job_listing_id)
+    //   FROM job_listings j
+    //   LEFT JOIN companies c ON j.company_id = c.id
+    //   LEFT JOIN applications a ON a.job_listing_id = j.id
+    //   GROUP BY j.id, c.name
+    //
+    // AsNoTracking() — this is a read-only endpoint. We never call
+    // SaveChangesAsync() here, so we do not need the change tracker.
+    // Skipping it saves memory and CPU.
+
     [HttpGet]
     public async Task<ActionResult<IEnumerable<JobResponse>>> GetJobsAsync(
         CancellationToken cancellationToken)
     {
-        // ToListAsync() translates to: SELECT * FROM job_listings ORDER BY posted_at DESC
-        // Returns an empty list — not a 404 — when no jobs exist yet
-        var jobs = await db.JobListings
+        // Step 1: Project to an anonymous type — only the columns we need.
+        // ApplicationCount is computed by the database (COUNT(*)), not in C#.
+        var rawJobs = await db.JobListings
+            .AsNoTracking()
             .OrderByDescending(j => j.PostedAt)
+            .Select(j => new
+            {
+                j.Id,
+                j.Title,
+                j.Description,
+                CompanyName      = j.Company.Name,  // JOIN to companies, only Name column
+                j.Location,
+                j.Type,
+                j.SalaryMin,
+                j.SalaryMax,
+                j.PostedAt,
+                j.IsActive,
+                ApplicationCount = j.Applications.Count()  // COUNT in SQL
+            })
             .ToListAsync(cancellationToken);
 
-        return Ok(jobs.Select(MapToResponse));
+        // Step 2: Map to the response DTO in C# (SalaryDisplay is computed here)
+        return Ok(rawJobs.Select(j => new JobResponse(
+            j.Id, j.Title, j.Description, j.CompanyName,
+            j.Location, j.Type, j.SalaryMin, j.SalaryMax,
+            ComputeSalaryDisplay(j.SalaryMin, j.SalaryMax),
+            j.PostedAt, j.IsActive, j.ApplicationCount
+        )));
     }
 
     // ── GET /jobs/{id} ────────────────────────────────────────────────────
-    // Anonymous — no token required
+    // Anonymous — returns full detail including applications received.
     [HttpGet("{id:guid}")]
-    public async Task<ActionResult<JobResponse>> GetJobByIdAsync(
+    public async Task<ActionResult<JobDetailResponse>> GetJobByIdAsync(
         Guid id,
         CancellationToken cancellationToken)
     {
-        // FindAsync checks the change tracker first (in case the entity was
-        // already loaded this request), then hits the database.
-        // More efficient than FirstOrDefaultAsync for primary key lookups.
-        var job = await db.JobListings.FindAsync([id], cancellationToken);
+        // Projection: fetch only the columns needed by JobDetailResponse.
+        // The nested Select on Applications gives us applicant name + status —
+        // not the full Applicant entity (no email, no other fields).
+        var raw = await db.JobListings
+            .AsNoTracking()
+            .Where(j => j.Id == id)
+            .Select(j => new
+            {
+                j.Id, j.Title, j.Description,
+                CompanyName  = j.Company.Name,
+                j.Location, j.Type, j.SalaryMin, j.SalaryMax,
+                j.PostedAt, j.IsActive,
+                Applications = j.Applications.Select(a => new
+                {
+                    ApplicantName = a.Applicant.Name,
+                    a.SubmittedAt,
+                    a.Status
+                }).ToList()
+            })
+            .FirstOrDefaultAsync(cancellationToken);
 
-        if (job is null)
+        if (raw is null)
             throw new JobNotFoundException(id);
 
-        return Ok(MapToResponse(job));
+        return Ok(new JobDetailResponse(
+            raw.Id, raw.Title, raw.Description, raw.CompanyName,
+            raw.Location, raw.Type, raw.SalaryMin, raw.SalaryMax,
+            ComputeSalaryDisplay(raw.SalaryMin, raw.SalaryMax),
+            raw.PostedAt, raw.IsActive,
+            raw.Applications.Select(a => new ApplicationSummary(
+                a.ApplicantName,
+                a.SubmittedAt,
+                a.Status.ToString()
+            ))
+        ));
     }
 
     // ── POST /jobs ────────────────────────────────────────────────────────
-    // Requires a valid JWT with the Employer role
     [Authorize(Roles = "Employer")]
     [HttpPost]
     public async Task<ActionResult<JobResponse>> CreateJobAsync(
         [FromBody] CreateJobRequest request,
         CancellationToken cancellationToken)
     {
-        // AnyAsync generates an EXISTS query in SQL —
-        // more efficient than loading the full entity just to check existence
+        // Verify the company exists
+        var company = await db.Companies.FindAsync([request.CompanyId!.Value], cancellationToken);
+        if (company is null)
+            throw new CompanyNotFoundException(request.CompanyId.Value);
+
+        // Idempotency: same title + same company = duplicate
         bool isDuplicate = await db.JobListings.AnyAsync(j =>
             j.Title.ToLower() == request.Title.ToLower() &&
-            j.Company.ToLower() == request.Company.ToLower(),
-            cancellationToken);
+            j.CompanyId == request.CompanyId, cancellationToken);
 
         if (isDuplicate)
-            throw new DuplicateJobListingException(request.Title, request.Company);
+            throw new DuplicateJobListingException(request.Title, company.Name);
 
-        // Map DTO → entity using the constructor — same pattern as class code.
-        // Server sets PostedAt and IsActive — client never supplies these.
-        // We generate the Guid here so we know the ID before saving —
-        // this lets us build the 201 Location header immediately.
         var newJob = new JobListing(
             Guid.NewGuid(),
             request.Title,
             request.Description,
-            request.Company,
+            request.CompanyId.Value,
             request.Location,
             request.Type!.Value,
             request.SalaryMin,
             request.SalaryMax,
-            DateTime.UtcNow, // server owns this
-            true             // server owns this — active by default
+            DateTime.UtcNow,
+            true
         );
 
-        // Add() only updates the change tracker — no database write yet
         db.JobListings.Add(newJob);
-
-        // SaveChangesAsync() is where the INSERT statement runs
         await db.SaveChangesAsync(cancellationToken);
 
-        var response = MapToResponse(newJob);
+        // Map to response — need company name for the DTO
+        var response = new JobResponse(
+            newJob.Id, newJob.Title, newJob.Description, company.Name,
+            newJob.Location, newJob.Type, newJob.SalaryMin, newJob.SalaryMax,
+            ComputeSalaryDisplay(newJob.SalaryMin, newJob.SalaryMax),
+            newJob.PostedAt, newJob.IsActive, 0
+        );
 
         return Created($"/jobs/{response.id}", response);
     }
 
     // ── PUT /jobs/{id} ────────────────────────────────────────────────────
-    // Requires a valid JWT with the Employer role
     [Authorize(Roles = "Employer")]
     [HttpPut("{id:guid}")]
     public async Task<ActionResult<JobResponse>> UpdateJobAsync(
@@ -104,34 +170,34 @@ public class JobsController(CareerHubDbContext db) : ControllerBase
         CancellationToken cancellationToken)
     {
         var existingJob = await db.JobListings.FindAsync([id], cancellationToken);
-
         if (existingJob is null)
             throw new JobNotFoundException(id);
 
-        // Mutate the properties directly on the tracked entity —
-        // same pattern as class code (existingBooking.Title = request.Title)
-        // EF Core's change tracker has a snapshot of the original values.
-        // SaveChangesAsync() compares current vs snapshot and generates
-        // a targeted UPDATE for only the changed columns.
-        // PostedAt and IsActive are intentionally not touched here —
-        // a PUT must not reset server-owned fields.
+        var company = await db.Companies.FindAsync([request.CompanyId!.Value], cancellationToken);
+        if (company is null)
+            throw new CompanyNotFoundException(request.CompanyId.Value);
+
         existingJob.Title       = request.Title;
         existingJob.Description = request.Description;
-        existingJob.Company     = request.Company;
+        existingJob.CompanyId   = request.CompanyId.Value;
         existingJob.Location    = request.Location;
         existingJob.Type        = request.Type!.Value;
         existingJob.SalaryMin   = request.SalaryMin;
         existingJob.SalaryMax   = request.SalaryMax;
 
-        // One SaveChangesAsync at the end — not once per property.
-        // The change tracker batches all mutations into a single UPDATE.
         await db.SaveChangesAsync(cancellationToken);
 
-        return Ok(MapToResponse(existingJob));
+        var response = new JobResponse(
+            existingJob.Id, existingJob.Title, existingJob.Description, company.Name,
+            existingJob.Location, existingJob.Type, existingJob.SalaryMin, existingJob.SalaryMax,
+            ComputeSalaryDisplay(existingJob.SalaryMin, existingJob.SalaryMax),
+            existingJob.PostedAt, existingJob.IsActive, 0
+        );
+
+        return Ok(response);
     }
 
     // ── DELETE /jobs/{id} ─────────────────────────────────────────────────
-    // Requires a valid JWT with the Employer role
     [Authorize(Roles = "Employer")]
     [HttpDelete("{id:guid}")]
     public async Task<ActionResult> DeleteJobAsync(
@@ -139,37 +205,64 @@ public class JobsController(CareerHubDbContext db) : ControllerBase
         CancellationToken cancellationToken)
     {
         var job = await db.JobListings.FindAsync([id], cancellationToken);
-
         if (job is null)
             throw new JobNotFoundException(id);
 
-        // Remove() marks the entity for deletion in the change tracker
         db.JobListings.Remove(job);
-
-        // The DELETE statement runs here
         await db.SaveChangesAsync(cancellationToken);
 
-        return NoContent(); // 204 — success, nothing to return
+        return NoContent();
+    }
+
+    // ── POST /jobs/{id}/apply ─────────────────────────────────────────────
+    // Applicants submit an application for a specific job listing.
+    [Authorize(Roles = "Applicant")]
+    [HttpPost("{id:guid}/apply")]
+    public async Task<ActionResult> ApplyForJobAsync(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        // Read applicant ID from the JWT claim set by AuthController at login
+        var applicantIdStr = User.FindFirstValue("ApplicantId")!;
+        var applicantId    = Guid.Parse(applicantIdStr);
+
+        // Verify the job exists
+        bool jobExists = await db.JobListings.AnyAsync(j => j.Id == id, cancellationToken);
+        if (!jobExists)
+            throw new JobNotFoundException(id);
+
+        // Check for duplicate application — the composite PK prevents this at DB level too,
+        // but we throw a domain exception here so GlobalExceptionHandler returns a clean 409.
+        bool alreadyApplied = await db.Applications.AnyAsync(a =>
+            a.JobListingId == id && a.ApplicantId == applicantId, cancellationToken);
+
+        if (alreadyApplied)
+            throw new DuplicateApplicationException(id);
+
+        var application = new Application
+        {
+            JobListingId = id,
+            ApplicantId  = applicantId,
+            SubmittedAt  = DateTime.UtcNow,
+            Status       = ApplicationStatus.Submitted
+        };
+
+        db.Applications.Add(application);
+        await db.SaveChangesAsync(cancellationToken);
+
+        return Created($"/jobs/{id}", new
+        {
+            Message     = "Application submitted successfully.",
+            JobListingId = id,
+            ApplicantId  = applicantId,
+            SubmittedAt  = application.SubmittedAt,
+            Status       = application.Status.ToString()
+        });
     }
 
     // ─────────────────────────────────────────────────────────────────────
     // Private helpers
     // ─────────────────────────────────────────────────────────────────────
-
-    private static JobResponse MapToResponse(JobListing job) =>
-        new(
-            job.Id,
-            job.Title,
-            job.Description,
-            job.Company,
-            job.Location,
-            job.Type,
-            job.SalaryMin,
-            job.SalaryMax,
-            ComputeSalaryDisplay(job.SalaryMin, job.SalaryMax),
-            job.PostedAt,
-            job.IsActive
-        );
 
     private static string ComputeSalaryDisplay(decimal? min, decimal? max) =>
         (min, max) switch

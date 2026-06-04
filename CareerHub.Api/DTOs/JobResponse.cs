@@ -2,19 +2,22 @@ using CareerHub.Api.Models;
 
 namespace CareerHub.Api.DTOs;
 
-// What the API returns to clients — the public contract.
-// SalaryDisplay is computed at mapping time; it is never stored in the domain model.
-// This is the clearest example of why a response DTO is not just a copy of the model.
+// CHANGED FROM 2.1:
+// - Company string removed (company data now comes from the related entity)
+// - CompanyName added (projected from j.Company.Name in the query)
+// - ApplicationCount added (computed by the database with COUNT(*), not in C#)
+
 public record JobResponse(
     Guid id,
     string Title,
     string Description,
-    string Company,
+    string CompanyName,       // from Company entity — projected in the query
     string Location,
-    JobType Type,        // serialized as "FullTime" not 0 — configured in Program.cs
+    JobType Type,
     decimal? SalaryMin,
     decimal? SalaryMax,
-    string SalaryDisplay, // e.g. "R25,000 – R40,000/month" — computed, not stored
+    string SalaryDisplay,
     DateTime PostedAt,
-    bool IsActive
+    bool IsActive,
+    int ApplicationCount      // COUNT(*) computed by the database
 );
