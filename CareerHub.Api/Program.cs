@@ -9,38 +9,20 @@ using CareerHub.Api.Data;
 using CareerHub.Api.Infrastructure;
 using CareerHub.Api.Middleware;
 
-Log.Logger = new LoggerConfiguration()
-    .WriteTo.Console()
-    .CreateLogger();
+Log.Logger = new LoggerConfiguration().WriteTo.Console().CreateLogger();
 
 try
 {
     Log.Information("Starting up the CareerHub API...");
 
     var builder = WebApplication.CreateBuilder(args);
-
     builder.Host.UseSerilog();
 
-    // ══════════════════════════════════════════════════════════════════
-    // BUILD-TIME DI VALIDATION — Part 5 of Assignment 2.3
-    //
-    // ValidateOnBuild: if the DI graph is invalid (e.g. a Singleton
-    // captures a Scoped service), the app refuses to start and prints
-    // the exact misconfiguration.
-    //
-    // Test: change AddJobListingFeature to use AddSingleton for
-    // IJobListingService — you will see:
-    //   "Cannot consume scoped service 'IJobListingRepository'
-    //    from singleton 'IJobListingService'."
-    // Fix: change it back to AddScoped.
-    // ══════════════════════════════════════════════════════════════════
     builder.Host.UseDefaultServiceProvider(options =>
     {
-        options.ValidateScopes  = true;  // catch Scoped-in-Singleton at request time
-        options.ValidateOnBuild = true;  // catch it at startup — fail fast
+        options.ValidateScopes  = true;
+        options.ValidateOnBuild = true;
     });
-
-    // ── PHASE 1: Register services ─────────────────────────────────────
 
     builder.Services.AddControllers()
         .AddJsonOptions(options =>
@@ -53,14 +35,20 @@ try
     builder.Services.AddCors(options =>
         options.AddPolicy("FrontEndPolicy", policy =>
             policy.WithOrigins("http://localhost:3000")
-                  .AllowAnyHeader()
-                  .AllowAnyMethod()));
+                  .AllowAnyHeader().AllowAnyMethod()));
 
-    builder.Services.AddDbContext<CareerHubDbContext>(options =>
-        options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+    // Register the interceptor BEFORE AddDbContext so it is resolvable
+    builder.Services.AddInfrastructure();
+
+    // ── EF Core with interceptor wiring (Part 7) ─────────────────────────
+    // The (serviceProvider, options) overload resolves SlowQueryInterceptor from DI.
+    // AddInterceptors wires it into every command EF Core executes.
+    builder.Services.AddDbContext<CareerHubDbContext>((serviceProvider, options) =>
+        options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"))
+               .AddInterceptors(serviceProvider.GetRequiredService<SlowQueryInterceptor>())
+    );
 
     var jwtSecretKey = builder.Configuration["Jwt:SecretKey"]!;
-
     builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         .AddJwtBearer(options =>
         {
@@ -77,17 +65,13 @@ try
 
     builder.Services.AddAuthorization();
 
-    // ── Feature registrations — no AddScoped/AddSingleton directly here ──
-    // Program.cs calls extension methods. All individual registrations
-    // live in Infrastructure/ServiceCollectionExtensions.cs.
+    // Feature registrations — no AddScoped/AddSingleton directly here
     builder.Services
         .AddJobListingFeature()
         .AddCompanyFeature()
         .AddApplicationFeature();
 
     var app = builder.Build();
-
-    // ── PHASE 2: Configure pipeline ────────────────────────────────────
 
     app.UseSerilogRequestLogging();
     app.UseCors("FrontEndPolicy");

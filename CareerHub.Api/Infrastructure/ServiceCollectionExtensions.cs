@@ -3,28 +3,24 @@ using CareerHub.Api.Services;
 
 namespace CareerHub.Api.Infrastructure;
 
-// ══════════════════════════════════════════════════════════════════════
-// DI REGISTRATION — matches the class pattern from BookingFeature.
-//
-// Extension methods group registrations by feature so Program.cs stays flat.
-// Program.cs calls these methods — it must NOT call AddScoped, AddTransient,
-// or AddSingleton directly for any application service or repository.
-//
-// WHY Scoped for all services and repositories?
-//   Every service and repository depends on CareerHubDbContext, which is Scoped
-//   (one instance per HTTP request). Any class that holds a Scoped dependency
-//   must itself be Scoped. A Singleton capturing a Scoped service is a bug that
-//   .NET catches at startup with ValidateOnBuild — the application refuses to start.
-//
-// EVIDENCE: Deliberately registering JobListingService as Singleton produces:
-//   "Cannot consume scoped service 'IJobListingRepository' from singleton 'IJobListingService'."
-//   Fix: change AddSingleton → AddScoped.
-// ══════════════════════════════════════════════════════════════════════
+// WHAT CHANGED FROM 2.3:
+// - AddInfrastructure() method added — registers SlowQueryInterceptor as Singleton.
+//   Singleton is correct because the interceptor holds no request state.
+//   IConfiguration and ILogger<T> are both Singleton-safe to inject into it.
 
 public static class ServiceCollectionExtensions
 {
-    // Registers all job listing repositories and services.
-    // JobListingService depends on IJobListingRepository and ICompanyRepository.
+    // Registers infrastructure services — interceptors and cross-cutting concerns.
+    // Called before AddDbContext so the interceptor is resolvable when DbContext is built.
+    public static IServiceCollection AddInfrastructure(
+        this IServiceCollection services)
+    {
+        // Singleton: one instance for the entire application lifetime.
+        // Safe because it carries no per-request state.
+        services.AddSingleton<SlowQueryInterceptor>();
+        return services;
+    }
+
     public static IServiceCollection AddJobListingFeature(
         this IServiceCollection services)
     {
@@ -33,7 +29,6 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    // Registers all company repositories and services.
     public static IServiceCollection AddCompanyFeature(
         this IServiceCollection services)
     {
@@ -42,8 +37,6 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    // Registers all application repositories and services.
-    // ApplicationService depends on IApplicationRepository and IJobListingRepository.
     public static IServiceCollection AddApplicationFeature(
         this IServiceCollection services)
     {

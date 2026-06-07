@@ -1,68 +1,106 @@
-# CareerHub API — Assignment 2.1
+# CareerHub API — Assignment 2.4
 
-Continues from Assignment 1.4. The in-memory job listing store has been replaced with a real PostgreSQL database backed by EF Core 10. Data now survives server restarts, deployments, and failures.
+Continues from Assignment 2.3. The data layer has been hardened for production load. Database-level check constraints enforce business rules independently of the application. Strategic indexes stop full table scans. Full-text search uses a stored tsvector column with a GIN index. Compiled queries eliminate per-call query plan overhead on hot paths. A slow query interceptor logs any command exceeding a configurable threshold. A raw SQL endpoint delivers application statistics using window functions EF Core cannot express in LINQ. The connection pool is sized for a three-instance production deployment.
 
 ---
 
-## What's inside
+## What is inside
 
 ```
 CareerHub.Api/
-├── CareerHub.Api.csproj              the project file (lists the .NET version and packages)
-├── Program.cs                        the entry point that starts the app
+├── CareerHub.Api.csproj
+├── Program.cs
+├── appsettings.json                          updated — pool settings and SlowQueryThresholdMs
+├── appsettings.Development.json              updated — dev pool settings
 ├── Models/
-│   ├── JobListing.cs                 entity class (converted from record for EF Core)
-│   └── JobType.cs                    enum — FullTime, PartTime, Contract, Internship
+│   ├── JobListing.cs                         updated — adds NpgsqlTsVector SearchVector
+│   ├── JobListingStatus.cs                   Active or Closed
+│   ├── JobType.cs
+│   ├── Company.cs
+│   ├── Applicant.cs
+│   ├── Application.cs
+│   └── ApplicationStatus.cs
 ├── Data/
-│   └── CareerHubDbContext.cs         EF Core DbContext with Fluent API configuration
-├── Migrations/                       auto-generated EF Core migration files
+│   ├── CareerHubDbContext.cs                 updated — check constraints, indexes, tsvector
+│   └── JobListingStore.cs                    empty — replaced by EF Core
+├── Migrations/                               all migration files
 ├── DTOs/
-│   ├── CreateJobRequest.cs           what the client sends to create a job
-│   ├── UpdateJobRequest.cs           what the client sends to replace a job
-│   ├── JobResponse.cs                what the API returns (includes SalaryDisplay)
-│   ├── LoginRequest.cs               what the client sends to log in
-│   └── LoginResponse.cs              what the API returns after a successful login
+│   ├── CreateJobRequest.cs
+│   ├── UpdateJobRequest.cs
+│   ├── JobResponse.cs
+│   ├── JobDetailResponse.cs
+│   ├── ApplicationSummary.cs
+│   ├── ApplicationDTOs.cs
+│   ├── CompanyDTOs.cs
+│   ├── JobListingStatsResponse.cs            new — for raw SQL stats endpoint
+│   ├── LoginRequest.cs
+│   └── LoginResponse.cs
 ├── Exceptions/
-│   ├── JobNotFoundException.cs       thrown when a job ID does not exist
-│   └── DuplicateJobListingException.cs  thrown when title + company already exists
+│   ├── JobNotFoundException.cs
+│   ├── CompanyNotFoundException.cs
+│   ├── DuplicateJobListingException.cs
+│   ├── DuplicateApplicationException.cs
+│   ├── ListingClosedException.cs
+│   ├── InvalidStatusTransitionException.cs
+│   ├── UnauthorizedOperationException.cs
+│   └── InvalidListingException.cs
+├── Repositories/
+│   ├── IJobListingRepository.cs              updated — SearchAsync, GetApplicationStatsAsync
+│   ├── JobListingRepository.cs               updated — compiled query, FTS, raw SQL
+│   ├── ICompanyRepository.cs
+│   ├── CompanyRepository.cs
+│   ├── IApplicationRepository.cs
+│   └── ApplicationRepository.cs             updated — compiled query for HasAlreadyApplied
+├── Services/
+│   ├── ApplicationStatusTransitions.cs
+│   ├── IJobListingService.cs                 updated — SearchAsync, GetApplicationStatsAsync
+│   ├── JobListingService.cs                  updated — two new methods
+│   ├── ICompanyService.cs
+│   ├── CompanyService.cs
+│   ├── IApplicationService.cs
+│   └── ApplicationService.cs
+├── Infrastructure/
+│   ├── ServiceCollectionExtensions.cs        updated — registers SlowQueryInterceptor
+│   └── SlowQueryInterceptor.cs               new — logs slow SQL commands
 ├── Middleware/
-│   └── GlobalExceptionHandler.cs    translates exceptions to Problem Details responses
+│   └── GlobalExceptionHandler.cs
 ├── Controllers/
-│   ├── JobsController.cs             handles all incoming requests to /jobs
-│   └── AuthController.cs             handles POST /auth/login and GET /auth/me
+│   ├── JobsController.cs                     updated — search and stats endpoints
+│   ├── CompaniesController.cs
+│   ├── ApplicationsController.cs
+│   └── AuthController.cs
 └── Properties/
-    └── launchSettings.json           tells `dotnet run` to open Scalar in the browser
+    └── launchSettings.json
 ```
 
 ---
 
 ## What it does
 
-| Request              | What happens                              | Response                    |
-| -------------------- | ----------------------------------------- | --------------------------- |
-| `GET /jobs`          | Returns all job listings from the database | 200 OK                     |
-| `GET /jobs/{id}`     | Returns one job by id                     | 200 OK if found, 404 if not |
-| `POST /jobs`         | Creates a new job listing (Employer only) | 201 Created, 400, or 409    |
-| `PUT /jobs/{id}`     | Fully replaces an existing job (Employer) | 200 OK, 400, or 404         |
-| `DELETE /jobs/{id}`  | Removes a job listing (Employer only)     | 204 No Content or 404       |
-| `POST /auth/login`   | Returns a signed JWT token                | 200 OK or 401               |
-| `GET /auth/me`       | Returns current user's username and role  | 200 OK or 401               |
+| Request | What happens | Response |
+| --- | --- | --- |
+| `GET /jobs` | Returns all active listings with company name and application count | 200 OK |
+| `GET /jobs/{id}` | Returns one listing with full application details | 200 OK or 404 |
+| `GET /jobs/search?q={term}` | Full-text search on title and description using GIN index | 200 OK |
+| `GET /jobs/stats?companyId={id}` | Application statistics per listing with RANK | 200 OK |
+| `POST /jobs` | Creates a new listing | 201, 400, or 409 |
+| `PUT /jobs/{id}` | Updates an existing listing | 200, 400, or 404 |
+| `DELETE /jobs/{id}` | Closes a listing | 204 or 404 |
+| `POST /applications/{listingId}` | Applicant applies for a job | 201 or 409 |
+| `GET /applications/listing/{id}` | Employer views all applicants for a listing | 200 OK |
+| `GET /applications/my` | Applicant views their own applications | 200 OK |
+| `PUT /applications/{listingId}/{applicantId}/status` | Employer updates application status | 204 or 422 |
+| `DELETE /applications/{listingId}` | Applicant withdraws their application | 204 or 403 |
+| `GET /companies` | Returns all companies | 200 OK |
+| `POST /companies` | Creates a new company | 201 or 409 |
+| `POST /auth/login` | Returns a signed JWT token | 200 OK or 401 |
+| `GET /auth/me` | Returns current user's username and role | 200 OK or 401 |
 
 ---
 
 ## Why I used Controllers and not Minimal APIs
 
-The assignment asked us to pick one and explain why. I went with
-**Controllers** because:
-
-- **It's the style we used in class.** Same `[ApiController]`,
-  `[Route]`, `[HttpGet]` and `Task<ActionResult<T>>` setup.
-- **Each URL is easy to find.** The HTTP verb and the route sit right
-  above the method that handles them.
-- **`[ApiController]` gives us things for free.** It automatically
-  returns a 400 error if someone sends bad input.
-- **It scales.** When CareerHub grows, each resource gets its own
-  controller file. The pattern stays the same.
+The assignment asked us to pick one and explain why. I went with Controllers because it is the style used in class, each URL is easy to find, `[ApiController]` gives automatic validation and 400 responses for free, and it scales cleanly when more resources are added.
 
 ---
 
@@ -70,51 +108,186 @@ The assignment asked us to pick one and explain why. I went with
 
 ### Why PostedAt belongs in JobResponse but not CreateJobRequest
 
-PostedAt is set by the server at the exact moment a job is created — the client has no say in when that is. If we allowed the client to supply it, they could submit a job with a past date to make it look more established than it is. Since the server owns this value, it makes sense to include it in the response so the frontend can display things like "Posted 3 days ago", but it must never appear in the request DTO.
+PostedAt is set by the server at the exact moment a job is created. If we allowed the client to supply it, they could submit a job with a past date. Since the server owns this value it appears in the response so the frontend can show "Posted 3 days ago" but must never appear in the request DTO.
 
-### Salary cross-field validation approach
+### Salary cross-field validation
 
-Standard Data Annotations like `[Range]` and `[Required]` only inspect a single field in isolation — they cannot compare two fields against each other. To enforce that SalaryMax must be greater than SalaryMin when both are provided, I implemented `IValidatableObject` on the `CreateJobRequest` and `UpdateJobRequest` records. The benefit is that the controller never touches salary logic — if the check fails, `[ApiController]` intercepts it and returns a 400 Problem Details response before the controller method even runs.
+Standard Data Annotations only inspect one field at a time. To enforce SalaryMax must be greater than SalaryMin, I implemented `IValidatableObject`. The `Validate()` method runs after all individual annotations pass. The controller never touches salary logic — if the check fails, `[ApiController]` returns 400 before the controller method runs.
 
-### PUT returns 200 OK with body (not 204 No Content)
+### PUT returns 200 OK with body
 
-I chose 200 with the updated `JobResponse` body. The React frontend needs to update its local state after a successful PUT. Returning the updated job means the client immediately has the confirmed server version without making a second GET request.
+Returning the updated `JobResponse` means the frontend can update its local state without a second GET request.
 
 ### DELETE returns 404 for a missing ID
 
-If a client sends DELETE for a job that does not exist, the API returns 404 Not Found rather than 204. A 204 would imply the operation succeeded — but nothing was actually removed, which is misleading.
+A 204 would imply success — but nothing was removed. 404 tells the client the resource did not exist.
 
 ### Controller Thinning
 
-When you throw `JobNotFoundException` instead of returning `NotFound()`, the controller only cares about one question: does this job exist or not? The `GlobalExceptionHandler` is the single place that decides the HTTP status code and Problem Details shape. You write that mapping once and it works everywhere consistently.
+Throwing `JobNotFoundException` instead of returning `NotFound()` means the controller only handles the happy path. `GlobalExceptionHandler` is the single place that decides the HTTP status code. You write that mapping once and it works everywhere.
 
 ### Structured Logging
 
-`Console.WriteLine` outputs a flat string that cannot be searched or filtered. Serilog writes JSON — each log entry has named fields like `RequestPath`, `StatusCode`, and `Elapsed`. In production, a log aggregator can query "show me all 404s in the last hour" or alert when 500s spike.
+`Console.WriteLine` outputs a flat string that cannot be searched. Serilog writes JSON with named fields. In production a log aggregator can query "show me all 404s in the last hour" or alert when 500s spike.
 
 ### Stateless Authentication — Session vs JWT
 
-JWT is stateless: the token itself contains all the information — who you are, what your role is, and when it expires. Any server can verify a JWT using only the secret key, with no shared database needed. For CareerHub, if we eventually run three server instances behind a load balancer, all three can validate the same token independently.
+JWT is stateless — the token contains all the information including who you are, your role, and when it expires. Any server can verify it using only the secret key. No shared session store needed across multiple servers.
 
 ### 401 Unauthorized vs 403 Forbidden
 
-401 means "I don't know who you are" — no token, expired token, or bad signature. `UseAuthentication()` produces this. 403 means "I know who you are but you are not allowed" — valid token but wrong role. `UseAuthorization()` produces this. This is why `UseAuthentication()` must come before `UseAuthorization()` in the pipeline.
+401 means the client has not proven who they are — no token, expired token, or bad signature. `UseAuthentication()` produces this. 403 means the identity is confirmed but the role does not match. `UseAuthorization()` produces this. This is why `UseAuthentication()` must come before `UseAuthorization()` in the pipeline.
 
 ### JWT Token Storage
 
-`localStorage` is accessible to any JavaScript on the page. If the site has an XSS vulnerability, an attacker can steal every token. The safer alternatives are HttpOnly cookies — JavaScript cannot read them at all — or in-memory storage where the token disappears on page refresh.
+`localStorage` is accessible to any JavaScript on the page. An XSS vulnerability would expose every token. The safer alternatives are HttpOnly cookies — JavaScript cannot read them — or in-memory storage where the token disappears on page refresh.
 
 ### The Change Tracker
 
-EF Core's change tracker takes a snapshot of every entity it loads from the database. When you mutate a property — `existingJob.Title = request.Title` — only the in-memory object changes. The snapshot is untouched. When you call `SaveChangesAsync()`, EF Core compares the current state against the snapshot and generates the minimum SQL needed: if only Title changed, only Title is included in the UPDATE statement. You call it once at the end of an operation, not once per property change, because each property change is just an in-memory update. The actual database write — and the transaction that wraps it — happens once when you explicitly ask for it with `SaveChangesAsync()`.
+EF Core takes a snapshot of every entity it loads. When you mutate a property only the in-memory object changes. When you call `SaveChangesAsync()`, EF Core compares the current state against the snapshot and generates the minimum SQL needed. You call it once at the end — not once per property change.
 
 ### Migrations as Version Control
 
-A migration file is the SQL definition of your schema changes expressed as C# code. If you commit code that references a new table or column but forget to commit the migration that creates it, your teammate pulls the code and runs the app — but their database does not have that table yet, so every query fails at runtime. Committing the migration alongside the code that requires it ensures everyone on the team has a clear, ordered script to bring their local database up to date. The `__EFMigrationsHistory` table records which migrations have already been applied, so EF Core knows exactly where each environment is and only runs the ones that are missing.
+A migration file is the SQL definition of your schema changes expressed as C# code. If you commit code that references a new table but forget to commit the migration, your teammate pulls the code and their database fails at runtime. Committing both together ensures everyone has a clear script to bring their database up to date.
 
 ### Connection String Security
 
-`appsettings.json` is committed to source control, which means anyone with access to the repository can read it. Putting a database username and password there is a real security risk. `appsettings.Development.json` is loaded only when `ASPNETCORE_ENVIRONMENT` is `Development` and should be added to `.gitignore` so it is never committed. For production, the safer alternative is environment variables set directly on the server, or a secrets manager like Azure Key Vault, where the credentials never appear in any file at all.
+`appsettings.json` is committed to source control. A database password there is a real security risk. `appsettings.Development.json` only loads locally and should be in `.gitignore`. For production the safer approach is environment variables or Azure Key Vault.
+
+### Relationship Design Decisions
+
+**Company to JobListing delete behaviour: Restrict**
+
+A company cannot be deleted while it still has job listings. Silently wiping all of a company's listings when the company is deleted would be dangerous on a job board. If a company needs to be removed, the listings must be explicitly deleted first. This forces deliberate cleanup.
+
+**Why the Application entity cannot be a hidden join table**
+
+A hidden join table only stores two foreign keys and carries no data of its own. An application carries a submission timestamp and a status that changes over time. A hidden join table has no columns to store either of those. The moment a relationship needs to carry its own data it must become an explicit entity.
+
+### The N+1 Query Problem
+
+**Before the fix:** Loading company names caused one SQL query for all job listings then one additional query for each listing to load its company. With five listings that was six queries. With a hundred listings it would be 201 queries.
+
+**After the fix:** Using a projection with `.Select()` produces exactly one SQL statement with JOIN clauses regardless of how many listings exist. ApplicationCount is computed by the database with `COUNT(*)` — not by loading all applications into memory.
+
+**Why this is dangerous in production:** In development with five rows the difference is invisible. In production with ten thousand listings the API fires ten thousand individual database queries per request. The database connection pool runs out. The app collapses under real traffic with no obvious error.
+
+### Read vs Write Queries
+
+A GET endpoint that uses the change tracker pays extra cost — EF Core snapshots every entity it loads. On a read endpoint that never calls `SaveChangesAsync()` that snapshot is wasted work. `AsNoTracking()` skips it.
+
+A dangerous scenario: if you used `AsNoTracking()` on a PUT endpoint, mutated a property, and called `SaveChangesAsync()`, EF Core would have no snapshot and generate no UPDATE statement. The change would silently disappear with no error.
+
+### Repository Design Decisions
+
+One repository per entity: `IJobListingRepository`, `ICompanyRepository`, `IApplicationRepository`. Each repository owns exactly the queries that relate to its entity. When `ApplicationService` needs to validate that a listing is open, it calls `IJobListingRepository.IsOpenForApplicationsAsync`. The query lives in the repository that owns the entity.
+
+Returning `IQueryable<T>` from a repository interface breaks the abstraction because `IQueryable<T>` is tied to EF Core's LINQ provider. Any class consuming it must import `Microsoft.EntityFrameworkCore`. This forces the service layer to know about EF Core — defeating the purpose of the repository.
+
+### What the Controller Lost
+
+Every piece of logic that moved out of the controllers during the 2.3 refactor:
+
+| Logic | Moved to | Why |
+|---|---|---|
+| Company existence check | JobListingService | Business rule |
+| Closing date validation | JobListingService | Business rule |
+| Duplicate listing check | JobListingRepository | Database query |
+| Duplicate application check | ApplicationRepository | Database query |
+| Status transition validation | ApplicationService + ApplicationStatusTransitions | Business rule |
+| Applicant ownership check | ApplicationService | Business rule |
+| AsNoTracking, Include, FindAsync | Repositories | EF Core — must not appear outside repository |
+| Entity construction | JobListingService | Business logic |
+| MapToResponse, SalaryDisplay | JobListingRepository | Projection |
+
+### Status Transition Design
+
+A static dictionary where each key is a from status and each value is the set of permitted to statuses. Rules are defined in exactly one place. `IsValid` is a pure function with no database query. Adding a new valid transition requires changing one line — no switch statements or if/else chains anywhere else.
+
+Valid workflow:
+```
+Submitted → UnderReview → Shortlisted → Offered
+                        → Rejected
+             Shortlisted → Rejected
+```
+
+### Lifetime Misconfiguration
+
+When `JobListingService` was registered as `AddSingleton` instead of `AddScoped`:
+
+```
+Cannot consume scoped service 'IJobListingRepository' from singleton 'IJobListingService'.
+```
+
+A Singleton lives for the entire application lifetime. A Scoped service lives for one HTTP request. If a Singleton captures a Scoped `DbContext` at startup, it reuses the same `DbContext` forever — the change tracker accumulates state from unrelated requests and causes data corruption. The fix is `AddScoped`.
+
+### Constraint Decisions
+
+**ck_job_listings_salarymin_positive:** SalaryMin must be greater than zero when provided. Bypass scenario: a direct psql INSERT could store a negative salary. Every API response would show corrupt data with no error.
+
+**ck_job_listings_salarymax_gt_min:** SalaryMax must be greater than SalaryMin when both are provided. Bypass scenario: a batch migration script importing old data could store inverted salary ranges.
+
+**ck_job_listings_closingdate_after_postedat:** ClosingDate must be after PostedAt. Bypass scenario: an UPDATE statement run directly against the database could backdate ClosingDate to before PostedAt.
+
+**ck_applications_submittedAt_not_future:** SubmittedAt must not be in the future. Bypass scenario: a direct INSERT with a future timestamp would make applications appear to have been submitted before the listing existed.
+
+### Index Decisions
+
+**ix_job_listings_status_closingdate — (Status, ClosingDate):** Supports `GetActiveListingsAsync` — the most frequent query called on every page load. Status first because it eliminates all Closed rows immediately. ClosingDate then filters within the small Active set. A query filtering only on ClosingDate cannot use this index.
+
+**ix_job_listings_companyid_status — (CompanyId, Status):** Supports the employer's own listing view. CompanyId first because one company's listings is a very small subset of the table.
+
+**ix_job_listings_searchvector — GIN on SearchVector:** Supports `SearchAsync`. B-tree cannot index tsvector. GIN inverts the vector so each word maps to the rows containing it.
+
+**ix_applications_joblistingid_applicantid — (JobListingId, ApplicantId):** Supports `HasAlreadyAppliedAsync` — called on every application submission.
+
+**ix_applications_joblistingid — JobListingId:** Supports `GetByListingIdAsync` — the employer dashboard.
+
+### EXPLAIN ANALYZE Findings
+
+**Before indexes — GetActiveListingsAsync:**
+```
+Seq Scan on job_listings
+Filter: (Status = 'Active') AND (ClosingDate > now())
+Rows Removed by Filter: 157
+Execution Time: 8.9 ms
+```
+
+**After indexes — GetActiveListingsAsync:**
+```
+Bitmap Heap Scan on job_listings
+  -> Bitmap Index Scan on ix_job_listings_status_closingdate
+Execution Time: 0.3 ms
+```
+
+Changed from scanning all 200 rows to scanning 43 matching rows. A Seq Scan reads every row then filters. A Bitmap Index Scan uses the composite index to identify matching row IDs before touching the table. With 50,000 rows the difference would be the application staying online versus crashing.
+
+### Hot Path Justification
+
+**IsOpenForApplicationsAsync:** Called on every application submission. With 1,000 active daily users submitting roughly 3 applications each, this runs approximately 125 times per hour during peak. EF Core rebuilds the LINQ expression tree and generates the SQL plan on every call without compilation. Compiling it at startup amortises that cost across all future calls.
+
+**HasAlreadyAppliedAsync:** Called immediately after `IsOpenForApplicationsAsync` on every submission — same frequency. Two compiled queries run per application attempt.
+
+### FromSql Parameterisation
+
+String interpolation inside `SqlQuery<T>($"...{companyId}...")` is safe. EF Core receives a `FormattableString` and extracts interpolated values as named parameters — `{companyId}` becomes `@p0`. The SQL sent to PostgreSQL never contains the actual value.
+
+Using `string.Format` or concatenation before passing the string to `SqlQuery<T>` is not safe. EF Core receives a completed string with the value already embedded. It cannot extract parameters from a pre-built string. That is a SQL injection risk.
+
+### Connection Pool Calculation
+
+```
+PostgreSQL max_connections        = 100
+Reserved for admin and monitoring = 10
+Available for application         = 90
+Number of instances               = 3
+Connections per instance          = 90 / 3 = 30
+
+MaxPoolSize = 30  (production)
+MaxPoolSize = 10  (development — one instance, less load)
+```
+
+When all connections are in use, new requests wait up to 15 seconds for one to become available. If none is returned, the client receives a 500 after a 15-second hang — not an immediate failure.
 
 ---
 
@@ -122,33 +295,19 @@ A migration file is the SQL definition of your schema changes expressed as C# co
 
 ### Prerequisites
 
-- **.NET 10 SDK** — check with `dotnet --version`
-- **Docker Desktop** — must be running before starting the app
+- .NET 10 SDK — check with `dotnet --version`
+- Docker Desktop — must be running before starting the app
 
 ### First time setup
 
-**1. Start PostgreSQL container:**
-
 ```bash
 docker run -d --name careerhub-postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=CareerHub -p 5432:5432 postgres:latest
-```
-
-**2. Apply migrations:**
-
-```bash
 cd CareerHub.Api
 dotnet ef database update
-```
-
-**3. Start the app:**
-
-```bash
 dotnet run
 ```
 
 ### Every time after that
-
-Always follow this order:
 
 ```
 1. Open Docker Desktop
@@ -158,209 +317,138 @@ Always follow this order:
 
 Browser opens at **http://localhost:5000/scalar/v1**
 
-The app will crash on startup if Docker is not running — it cannot connect to the database.
+---
+
+## Credentials
+
+| Username | Password | Role | Who they are |
+| --- | --- | --- | --- |
+| employer | password123 | Employer | Posts and manages jobs |
+| applicant1 | password123 | Applicant | Alice Smith |
+| applicant2 | password123 | Applicant | Bob Jones |
 
 ---
 
-## How to test the endpoints
+## How to Test — Assignment 2.3
 
-In Scalar:
+### Test 1 — Layer separation
 
-1. **Empty start** — GET /jobs → expect empty array `[]`
-2. **Get a token** — POST /auth/login with `username: employer` and `password: password123` → copy the token
-3. **Create a job** — POST /jobs with Bearer token → expect 201 Created
-4. **Survival test** — stop the app (Ctrl+C), restart with `dotnet run`, GET /jobs → job is still there
-5. **Duplicate guard** — POST the same job again → expect 409 Conflict
-6. **Not found** — GET /jobs/{random-guid} → expect 404 Not Found
-7. **Delete** — DELETE /jobs/{id} with Bearer token → expect 204, then GET same id → expect 404
+Open `Services/JobListingService.cs` and `Services/ApplicationService.cs`. Confirm neither contains `using Microsoft.EntityFrameworkCore`.
+
+### Test 2 — Duplicate application
+
+Enable query logging in `Program.cs`:
+```csharp
+options.UseNpgsql(...).LogTo(Console.WriteLine, LogLevel.Information)
+```
+
+Get employer token. Create a company. Create a job. Get applicant token. Apply — confirm 201 and INSERT in terminal. Apply again — confirm 409 and no second INSERT.
+
+### Test 3 — Status transition
+
+Using employer token, try PUT /Applications/{jobId}/{applicantId}/status with `{ "status": "Offered" }` on a Submitted application. Confirm 422. Then walk the valid path: UnderReview → Shortlisted → Offered. Confirm 204 each time.
+
+### Test 4 — Lifetime validation
+
+Change `AddScoped<IJobListingService, JobListingService>()` to `AddSingleton`. Run the app. Confirm startup error. Fix back to `AddScoped`. Confirm clean startup.
+
+### Test 5 — Controller line count
+
+Show any two controller actions. Each must be 10 lines or less with no business logic.
+
+### Test 6 — End-to-end flow
+
+With logging enabled: create a job listing, show the INSERT in the terminal and 201 response. Then try to create a job with a non-existent company ID. Confirm 404.
+
+### Test 7 — Extension method registration
+
+Show `Program.cs` contains no direct `AddScoped`, `AddTransient`, or `AddSingleton` calls — only extension method calls.
 
 ---
 
-## A note on async/await
+## How to Test — Assignment 2.4
 
-Every endpoint is marked `async`. All database operations use `await` — `ToListAsync()`, `FindAsync()`, `SaveChangesAsync()`. This tells .NET to release the thread while waiting for the database, keeping the API responsive under load.
+### Test 1 — Constraint enforcement
+
+```bash
+docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "INSERT INTO job_listings (\"Id\", \"Title\", \"Description\", \"CompanyId\", \"Location\", \"Type\", \"PostedAt\", \"IsActive\", \"ClosingDate\", \"Status\", \"SalaryMin\", \"SalaryMax\") SELECT gen_random_uuid(), 'Bad Salary', 'Test description here', \"Id\", 'Joburg', 'FullTime', NOW(), true, NOW() + interval '30 days', 'Active', 5000, 1000 FROM companies LIMIT 1;"
+```
+
+Expected: `new row violates check constraint "ck_job_listings_salarymax_gt_min"`
+
+```bash
+docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "INSERT INTO applications (\"JobListingId\", \"ApplicantId\", \"SubmittedAt\", \"Status\") SELECT \"Id\", 'a0000000-0000-0000-0000-000000000001', NOW() + interval '1 day', 'Submitted' FROM job_listings LIMIT 1;"
+```
+
+Expected: `new row violates check constraint "ck_applications_submittedAt_not_future"`
+
+### Test 2 — Index verification
+
+```bash
+docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "\d job_listings"
+docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "\d applications"
+```
+
+Confirm all five indexes are present.
+
+### Test 3 — EXPLAIN ANALYZE before and after
+
+Seed 200 listings:
+```bash
+docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "
+INSERT INTO job_listings (\"Id\", \"Title\", \"Description\", \"CompanyId\", \"Location\", \"Type\", \"PostedAt\", \"IsActive\", \"ClosingDate\", \"Status\")
+SELECT gen_random_uuid(), 'Developer Role ' || gs, 'Test description for listing number ' || gs || ' at our company.', (SELECT \"Id\" FROM companies ORDER BY RANDOM() LIMIT 1), 'Bloemfontein', 'FullTime', NOW() - (random() * interval '60 days'), true, NOW() + (random() * interval '180 days'), CASE WHEN random() > 0.3 THEN 'Active' ELSE 'Closed' END
+FROM generate_series(1, 200) gs;"
+```
+
+Drop index, run EXPLAIN ANALYZE, show Seq Scan. Recreate index, run EXPLAIN ANALYZE, show Bitmap Index Scan.
+
+### Test 4 — Full-text search
+
+GET /Jobs/search?q=developer — show matching results. GET /Jobs/search?q=developing — show stemming returns developer results too. Run EXPLAIN ANALYZE to confirm GIN index is used.
+
+### Test 5 — Compiled query confirmation
+
+Show `private static readonly Func<...>` fields in `JobListingRepository.cs` and `ApplicationRepository.cs`.
+
+### Test 6 — Slow query interceptor
+
+Set `SlowQueryThresholdMs` to 0. Run app. Call GET /Jobs. Show warnings in terminal. Restore to 100. Show no warnings.
+
+### Test 7 — Raw SQL statistics
+
+Call GET /Jobs/stats?companyId={id}. Show response with per-status counts and rank field. Confirm the listing with most applications has rank 1.
+
+### Test 8 — Connection pool
+
+Show `appsettings.json` with `Maximum Pool Size=30` and `appsettings.Development.json` with `Maximum Pool Size=10`. Explain the calculation.
+
+---
+
+## Seeded Applicants
+
+Two applicants are automatically inserted when migrations are applied:
+
+```bash
+docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "SELECT * FROM applicants;"
+```
+
+Expected:
+```
+a0000000-0000-0000-0000-000000000001 | Alice Smith | alice@example.com | applicant1
+a0000000-0000-0000-0000-000000000002 | Bob Jones   | bob@example.com   | applicant2
+```
+
+If the table is empty run:
+```bash
+dotnet ef migrations add SeedApplicants
+dotnet ef database update
+```
 
 ---
 
 ## Git history
 
-To see the branches visually:
-
 ```bash
 git log --oneline --graph --all
 ```
-
----
-
-## How to Test the Endpoints — Assignment 2.2
-
-### Prerequisites
-
-Make sure Docker is running and the app is started:
-
-```bash
-docker start careerhub-postgres
-cd CareerHub.Api
-dotnet run
-```
-
-Open **http://localhost:5000/scalar/v1**
-
----
-
-### Step 1 — Get an Employer token
-
-**POST /Auth/login**
-
-```json
-{
-  "username": "employer",
-  "password": "password123"
-}
-```
-
-Copy the token from the response. You will use it for all employer actions.
-
----
-
-### Step 2 — Create a company
-
-**POST /Companies** — add `Authorization: Bearer <employer-token>` header
-
-```json
-{ "name": "BitCube", "website": "https://bitcube.co.za", "industry": "Technology" }
-```
-
-Expected: **201 Created**. Copy the `id` from the response — this is your `companyId`.
-
-Repeat this step to create 4 more companies (needed for the N+1 test):
-
-```json
-{ "name": "Google", "industry": "Technology" }
-{ "name": "Amazon", "industry": "Cloud" }
-{ "name": "Microsoft", "industry": "Software" }
-{ "name": "Netflix", "industry": "Streaming" }
-```
-
----
-
-### Step 3 — Create job listings (one per company)
-
-**POST /Jobs** — add `Authorization: Bearer <employer-token>` header
-
-Create one listing per company using each company's ID:
-
-```json
-{
-  "title": "Senior Developer",
-  "companyId": "PASTE-COMPANY-ID-HERE",
-  "location": "Bloemfontein",
-  "description": "Build scalable .NET applications for our enterprise platform.",
-  "type": "FullTime",
-  "salaryMin": 45000,
-  "salaryMax": 65000
-}
-```
-
-Expected: **201 Created** for each. Copy one `id` — you will use it for the apply test.
-
----
-
-### Step 4 — Verify the list endpoint (N+1 fix proof)
-
-**GET /Jobs** — no token needed
-
-Expected: **200 OK** with all listings. Each listing shows `companyName` and `applicationCount`.
-
-Check the terminal — you should see **one SQL statement** with JOIN clauses. This proves the N+1 fix is working.
-
----
-
-### Step 5 — Apply as applicant1
-
-**POST /Auth/login** with applicant credentials:
-
-```json
-{ "username": "applicant1", "password": "password123" }
-```
-
-Copy the applicant token.
-
-**POST /Jobs/{id}/apply** — paste the job `id` in the URL, use the applicant token, no body needed.
-
-Expected: **201 Created** with application details including `status: "Submitted"`.
-
----
-
-### Step 6 — Verify the application appears
-
-**GET /Jobs/{id}** — paste the same job id, no token needed.
-
-Expected: **200 OK** with an `applications` array containing:
-- `applicantName`: Alice Smith
-- `submittedAt`: the timestamp
-- `status`: Submitted
-
----
-
-### Step 7 — Duplicate application (409 test)
-
-**POST /Jobs/{id}/apply** again with the same applicant1 token and same job id.
-
-Expected: **409 Conflict** — "You have already applied for this job listing."
-
----
-
-### Step 8 — Apply as applicant2 (different caller test)
-
-**POST /Auth/login** with applicant2 credentials:
-
-```json
-{ "username": "applicant2", "password": "password123" }
-```
-
-**POST /Jobs/{id}/apply** — same job id, but now using the applicant2 token.
-
-Expected: **201 Created** — Bob Jones successfully applied to the same job.
-
-**GET /Jobs/{id}** — confirm the `applications` array now shows both Alice Smith and Bob Jones.
-
----
-
-### Step 9 — Schema correctness (database check)
-
-Open a new terminal and run:
-
-```bash
-docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "\d companies"
-docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "\d applicants"
-docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "\d applications"
-docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "\d job_listings"
-```
-
-Confirm:
-- `companies` has a unique index on `Name` and is referenced by `job_listings`
-- `applications` has a composite primary key on `(ApplicantId, JobListingId)`
-- `job_listings` has a FK to `companies` with `ON DELETE RESTRICT`
-
----
-
-### Step 10 — Relationship enforcement (database rejects bad data)
-
-Try to insert a job listing with a company ID that does not exist:
-
-```bash
-docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "INSERT INTO job_listings (\"Id\", \"Title\", \"Description\", \"CompanyId\", \"Location\", \"Type\", \"PostedAt\", \"IsActive\") VALUES (gen_random_uuid(), 'Test', 'Test description', '00000000-0000-0000-0000-000000000099', 'Joburg', 'FullTime', NOW(), true);"
-```
-
-Expected: database rejects it with a foreign key violation error.
-
----
-
-### Credentials summary
-
-| Username | Password | Role | What they can do |
-| -------- | -------- | ---- | ---------------- |
-| employer | password123 | Employer | Create companies, post jobs, update, delete |
-| applicant1 | password123 | Applicant | Apply for jobs (Alice Smith) |
-| applicant2 | password123 | Applicant | Apply for jobs (Bob Jones) |
