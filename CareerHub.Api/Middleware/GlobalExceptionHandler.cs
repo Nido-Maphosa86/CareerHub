@@ -11,20 +11,21 @@ public class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger) : IE
         Exception exception,
         CancellationToken cancellationToken)
     {
-        // 1. Log the error
         logger.LogError(exception, "An exception occurred: {Message}", exception.Message);
 
-        // 2. Map exception type to HTTP status code
         var statusCode = exception switch
         {
-            JobNotFoundException         => StatusCodes.Status404NotFound,
-            CompanyNotFoundException     => StatusCodes.Status404NotFound,
-            DuplicateJobListingException => StatusCodes.Status409Conflict,
+            JobNotFoundException          => StatusCodes.Status404NotFound,
+            CompanyNotFoundException      => StatusCodes.Status404NotFound,
+            DuplicateJobListingException  => StatusCodes.Status409Conflict,
             DuplicateApplicationException => StatusCodes.Status409Conflict,
-            _                            => StatusCodes.Status500InternalServerError
+            ListingClosedException        => StatusCodes.Status409Conflict,
+            InvalidListingException       => StatusCodes.Status400BadRequest,
+            InvalidStatusTransitionException => StatusCodes.Status422UnprocessableEntity,
+            UnauthorizedOperationException   => StatusCodes.Status403Forbidden,
+            _                             => StatusCodes.Status500InternalServerError
         };
 
-        // 3. Construct Problem Details response
         var problemDetails = new ProblemDetails
         {
             Status   = statusCode,
@@ -33,7 +34,6 @@ public class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger) : IE
             Instance = httpContext.Request.Path
         };
 
-        // 4. Write the response
         httpContext.Response.StatusCode  = statusCode;
         httpContext.Response.ContentType = "application/problem+json";
         await httpContext.Response.WriteAsJsonAsync(problemDetails, cancellationToken);
@@ -43,8 +43,11 @@ public class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger) : IE
 
     private static string GetTitle(int statusCode) => statusCode switch
     {
-        StatusCodes.Status404NotFound  => "Resource Not Found",
-        StatusCodes.Status409Conflict  => "Resource Conflict",
-        _                              => "Internal Server Error"
+        StatusCodes.Status400BadRequest          => "Bad Request",
+        StatusCodes.Status403Forbidden           => "Forbidden",
+        StatusCodes.Status404NotFound            => "Resource Not Found",
+        StatusCodes.Status409Conflict            => "Resource Conflict",
+        StatusCodes.Status422UnprocessableEntity => "Invalid Status Transition",
+        _                                        => "Internal Server Error"
     };
 }
