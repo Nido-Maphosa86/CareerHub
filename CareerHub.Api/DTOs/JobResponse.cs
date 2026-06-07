@@ -2,16 +2,15 @@ using CareerHub.Api.Models;
 
 namespace CareerHub.Api.DTOs;
 
-// CHANGED FROM 2.1:
-// - Company string removed (company data now comes from the related entity)
-// - CompanyName added (projected from j.Company.Name in the query)
-// - ApplicationCount added (computed by the database with COUNT(*), not in C#)
+// CHANGED FROM 2.2:
+// - Status added — tells the client whether the listing is still accepting applications
+// - ClosingDate added — lets the frontend show "Closes in X days"
 
 public record JobResponse(
     Guid id,
     string Title,
     string Description,
-    string CompanyName,       // from Company entity — projected in the query
+    string CompanyName,
     string Location,
     JobType Type,
     decimal? SalaryMin,
@@ -19,5 +18,7 @@ public record JobResponse(
     string SalaryDisplay,
     DateTime PostedAt,
     bool IsActive,
-    int ApplicationCount      // COUNT(*) computed by the database
+    int ApplicationCount,
+    DateTime ClosingDate,
+    string Status
 );
