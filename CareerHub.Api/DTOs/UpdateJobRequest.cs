@@ -27,7 +27,10 @@ public record UpdateJobRequest(
     decimal? SalaryMin,
 
     [Range(1, double.MaxValue, ErrorMessage = "SalaryMax must be greater than zero")]
-    decimal? SalaryMax
+    decimal? SalaryMax,
+
+    [Required(ErrorMessage = "Closing date is required")]
+    DateTime? ClosingDate
 
 ) : IValidatableObject
 {

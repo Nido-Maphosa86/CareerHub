@@ -2,17 +2,7 @@ using CareerHub.Api.Models;
 
 namespace CareerHub.Api.DTOs;
 
-// Summary of a single application — returned inside JobDetailResponse.
-// Only exposes what the job listing view needs — no applicant email for privacy.
-public record ApplicationSummary(
-    string ApplicantName,
-    DateTime SubmittedAt,
-    string Status
-);
-
-// Full detail response for GET /jobs/{id}.
-// Includes the applications received and the name of each applicant.
-// Separated from JobResponse so the list endpoint stays compact.
+// UPDATED in 2.3: added ClosingDate and Status
 public record JobDetailResponse(
     Guid id,
     string Title,
@@ -25,5 +15,7 @@ public record JobDetailResponse(
     string SalaryDisplay,
     DateTime PostedAt,
     bool IsActive,
-    IEnumerable<ApplicationSummary> Applications
+    IEnumerable<ApplicationSummary> Applications,
+    DateTime ClosingDate,
+    string Status
 );
