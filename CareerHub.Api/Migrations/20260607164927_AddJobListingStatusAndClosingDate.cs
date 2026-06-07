@@ -1,0 +1,41 @@
+﻿using System;
+using Microsoft.EntityFrameworkCore.Migrations;
+
+#nullable disable
+
+namespace CareerHub.Api.Migrations
+{
+    /// <inheritdoc />
+    public partial class AddJobListingStatusAndClosingDate : Migration
+    {
+        /// <inheritdoc />
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.AddColumn<DateTime>(
+                name: "ClosingDate",
+                table: "job_listings",
+                type: "timestamp with time zone",
+                nullable: false,
+                defaultValue: new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified));
+
+            migrationBuilder.AddColumn<int>(
+                name: "Status",
+                table: "job_listings",
+                type: "integer",
+                nullable: false,
+                defaultValue: 0);
+        }
+
+        /// <inheritdoc />
+        protected override void Down(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.DropColumn(
+                name: "ClosingDate",
+                table: "job_listings");
+
+            migrationBuilder.DropColumn(
+                name: "Status",
+                table: "job_listings");
+        }
+    }
+}
