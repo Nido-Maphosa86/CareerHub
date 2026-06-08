@@ -1,77 +1,61 @@
+using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Text;
 using CareerHub.Api.Data;
 using CareerHub.Api.DTOs;
 
 namespace CareerHub.Api.Controllers;
 
 [ApiController]
-[Route("[controller]")]
+[ApiVersion(1)]
+[Route("api/v{version:apiVersion}/[controller]")]
 public class AuthController(IConfiguration configuration) : ControllerBase
 {
-    // Hardcoded credentials — Week 3 replaces with real DB lookup
-    // Employer:    username=employer,    password=password123
-    // Applicant 1: username=applicant1,  password=password123
-    // Applicant 2: username=applicant2,  password=password123
+    private static readonly (string Username, string Password, string Role, Guid? ApplicantId)[] _users =
+    [
+        ("employer",    "password123", "Employer",  null),
+        ("applicant1",  "password123", "Applicant", CareerHubDbContext.Applicant1Id),
+        ("applicant2",  "password123", "Applicant", CareerHubDbContext.Applicant2Id),
+    ];
 
     [HttpPost("login")]
-    public IActionResult Login([FromBody] LoginRequest request)
+    public ActionResult<LoginResponse> Login([FromBody] LoginRequest request)
     {
-        // Step 1: Verify credentials and determine role + claims
-        var (role, extraClaims) = request.Username switch
-        {
-            "employer" when request.Password == "password123"
-                => ("Employer", Array.Empty<Claim>()),
+        var user = _users.FirstOrDefault(u =>
+            u.Username == request.Username && u.Password == request.Password);
 
-            "applicant1" when request.Password == "password123"
-                => ("Applicant", new[] { new Claim("ApplicantId", CareerHubDbContext.Applicant1Id.ToString()) }),
+        if (user == default)
+            return Unauthorized();
 
-            "applicant2" when request.Password == "password123"
-                => ("Applicant", new[] { new Claim("ApplicantId", CareerHubDbContext.Applicant2Id.ToString()) }),
-
-            _ => (null, null)
-        };
-
-        if (role is null)
-            return Unauthorized(); // 401 — do not say which field was wrong
-
-        // Step 2: Build claims
         var claims = new List<Claim>
         {
-            new Claim(JwtRegisteredClaimNames.Sub, request.Username),
-            new Claim(ClaimTypes.Role, role)
+            new(JwtRegisteredClaimNames.Sub, user.Username),
+            new(System.Security.Claims.ClaimTypes.Role, user.Role)
         };
 
-        if (extraClaims is not null)
-            claims.AddRange(extraClaims);
+        if (user.ApplicantId.HasValue)
+            claims.Add(new Claim("ApplicantId", user.ApplicantId.Value.ToString()));
 
-        // Step 3: Sign with secret key from config
-        var key   = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(configuration["Jwt:SecretKey"]!));
-        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
-        // Step 4: Build and return the token
+        var key   = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(
+            System.Text.Encoding.UTF8.GetBytes(configuration["Jwt:SecretKey"]!));
+        var creds = new Microsoft.IdentityModel.Tokens.SigningCredentials(
+            key, Microsoft.IdentityModel.Tokens.SecurityAlgorithms.HmacSha256);
         var token = new JwtSecurityToken(
-            claims:            claims,
-            expires:           DateTime.UtcNow.AddHours(2),
-            signingCredentials: creds
-        );
+            claims: claims,
+            expires: DateTime.UtcNow.AddHours(8),
+            signingCredentials: creds);
 
         return Ok(new LoginResponse(new JwtSecurityTokenHandler().WriteToken(token)));
     }
 
-    // GET /auth/me — returns the decoded claims from the current token
-    [Authorize]
     [HttpGet("me")]
-    public IActionResult GetCurrentUser()
+    [Authorize]
+    public ActionResult GetCurrentUser()
     {
-        var username    = User.FindFirstValue(JwtRegisteredClaimNames.Sub);
-        var role        = User.FindFirstValue(ClaimTypes.Role);
-        var applicantId = User.FindFirstValue("ApplicantId");
-
-        return Ok(new { username, role, applicantId });
+        var username = User.FindFirstValue(JwtRegisteredClaimNames.Sub);
+        var role     = User.FindFirstValue(ClaimTypes.Role);
+        return Ok(new { username, role });
     }
 }
