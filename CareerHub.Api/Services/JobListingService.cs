@@ -9,26 +9,32 @@ namespace CareerHub.Api.Services;
 
 public interface IJobListingService
 {
-    Task<IEnumerable<JobResponse>>          GetActiveListingsAsync(CancellationToken ct = default);
-    Task<JobDetailResponse>                 GetByIdAsync(Guid id, CancellationToken ct = default);
-    Task<IEnumerable<JobResponse>>          SearchAsync(string searchTerm, CancellationToken ct = default);
+    Task<PagedResponse<JobResponse>>          GetActiveListingsAsync(int page, int pageSize, JobListingFilterQuery filter, CancellationToken ct = default);
+    Task<PagedResponse<JobResponse>>          GetCompanyListingsAsync(Guid companyId, int page, int pageSize, CancellationToken ct = default);
+    Task<JobDetailResponse>                   GetByIdAsync(Guid id, CancellationToken ct = default);
+    Task<IEnumerable<JobResponse>>            SearchAsync(string searchTerm, CancellationToken ct = default);
     Task<IEnumerable<JobListingStatsResponse>> GetApplicationStatsAsync(Guid companyId, CancellationToken ct = default);
-    Task<JobResponse>                       CreateAsync(CreateJobRequest request, CancellationToken ct = default);
-    Task<JobResponse>                       UpdateAsync(Guid id, UpdateJobRequest request, CancellationToken ct = default);
-    Task                                    CloseAsync(Guid id, CancellationToken ct = default);
+    Task<JobResponse>                         CreateAsync(CreateJobRequest request, CancellationToken ct = default);
+    Task<JobResponse>                         UpdateAsync(Guid id, UpdateJobRequest request, CancellationToken ct = default);
+    Task<JobResponse>                         PatchAsync(Guid id, UpdateJobListingRequest request, CancellationToken ct = default);
+    Task                                      CloseAsync(Guid id, CancellationToken ct = default);
 }
 
 // ── Implementation ───────────────────────────────────────────────────────────
 
-// No Microsoft.EntityFrameworkCore imports. If EF Core types appear here,
-// that code belongs in the repository instead.
+// No Microsoft.EntityFrameworkCore imports — all persistence in the repository.
 
 public class JobListingService(
     IJobListingRepository listingRepo,
     ICompanyRepository    companyRepo) : IJobListingService
 {
-    public Task<IEnumerable<JobResponse>> GetActiveListingsAsync(CancellationToken ct = default) =>
-        listingRepo.GetActiveListingsAsync(ct);
+    public Task<PagedResponse<JobResponse>> GetActiveListingsAsync(
+        int page, int pageSize, JobListingFilterQuery filter, CancellationToken ct = default) =>
+        listingRepo.GetActiveListingsPagedAsync(page, pageSize, filter, ct);
+
+    public Task<PagedResponse<JobResponse>> GetCompanyListingsAsync(
+        Guid companyId, int page, int pageSize, CancellationToken ct = default) =>
+        listingRepo.GetCompanyListingsPagedAsync(companyId, page, pageSize, ct);
 
     public async Task<JobDetailResponse> GetByIdAsync(Guid id, CancellationToken ct = default)
     {
@@ -37,12 +43,9 @@ public class JobListingService(
         return listing;
     }
 
-    // Delegates directly — the service owns no search logic.
-    // The repository decides how to query (FTS via GIN index).
     public Task<IEnumerable<JobResponse>> SearchAsync(string searchTerm, CancellationToken ct = default) =>
         listingRepo.SearchAsync(searchTerm, ct);
 
-    // Delegates directly — the repository owns the raw SQL query.
     public Task<IEnumerable<JobListingStatsResponse>> GetApplicationStatsAsync(
         Guid companyId, CancellationToken ct = default) =>
         listingRepo.GetApplicationStatsAsync(companyId, ct);
@@ -76,8 +79,7 @@ public class JobListingService(
             throw new ListingClosedException(id);
 
         if (existing.CompanyId != request.CompanyId!.Value)
-            throw new InvalidListingException(
-                "The CompanyId in the request does not match the listing's owning company.");
+            throw new InvalidListingException("CompanyId does not match the listing's owning company.");
 
         if (!await companyRepo.ExistsAsync(request.CompanyId.Value, ct))
             throw new CompanyNotFoundException(request.CompanyId.Value);
@@ -93,6 +95,19 @@ public class JobListingService(
         await listingRepo.UpdateAsync(existing, ct);
         var detail = await listingRepo.GetDetailByIdAsync(id, ct);
         return ToSummary(detail!);
+    }
+
+    public async Task<JobResponse> PatchAsync(Guid id, UpdateJobListingRequest request, CancellationToken ct = default)
+    {
+        if (!await listingRepo.ExistsAsync(id, ct))
+            throw new JobNotFoundException(id);
+
+        var existing = await listingRepo.GetEntityByIdAsync(id, ct);
+        if (existing!.Status == JobListingStatus.Closed)
+            throw new ListingClosedException(id);
+
+        var result = await listingRepo.PatchAsync(id, request, ct);
+        return result ?? throw new JobNotFoundException(id);
     }
 
     public async Task CloseAsync(Guid id, CancellationToken ct = default)
