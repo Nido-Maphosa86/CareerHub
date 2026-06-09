@@ -1,6 +1,6 @@
-# CareerHub API — Assignment 2.4
+# CareerHub API — Assignment 3.1
 
-Continues from Assignment 2.3. The data layer has been hardened for production load. Database-level check constraints enforce business rules independently of the application. Strategic indexes stop full table scans. Full-text search uses a stored tsvector column with a GIN index. Compiled queries eliminate per-call query plan overhead on hot paths. A slow query interceptor logs any command exceeding a configurable threshold. A raw SQL endpoint delivers application statistics using window functions EF Core cannot express in LINQ. The connection pool is sized for a three-instance production deployment.
+Continues from Assignment 2.4. The API is now production-ready for frontend consumption. Pagination stops unbounded responses on the job board. Client-controlled filtering and sorting reduce unnecessary data transfer. A PATCH endpoint resolves the PUT race condition. URL segment versioning adds a non-breaking contract for future changes. ETags eliminate redundant responses for unchanged resources. Rate limiting protects the search and application endpoints from abuse.
 
 ---
 
@@ -8,23 +8,26 @@ Continues from Assignment 2.3. The data layer has been hardened for production l
 
 ```
 CareerHub.Api/
-├── CareerHub.Api.csproj
-├── Program.cs
-├── appsettings.json                          updated — pool settings and SlowQueryThresholdMs
-├── appsettings.Development.json              updated — dev pool settings
+├── CareerHub.Api.csproj                      updated — Asp.Versioning.Mvc package added
+├── Program.cs                                updated — CORS, versioning, rate limiting
+├── appsettings.json
+├── appsettings.Development.json
 ├── Models/
-│   ├── JobListing.cs                         updated — adds NpgsqlTsVector SearchVector
-│   ├── JobListingStatus.cs                   Active or Closed
+│   ├── JobListing.cs
+│   ├── JobListingStatus.cs
 │   ├── JobType.cs
 │   ├── Company.cs
 │   ├── Applicant.cs
 │   ├── Application.cs
 │   └── ApplicationStatus.cs
 ├── Data/
-│   ├── CareerHubDbContext.cs                 updated — check constraints, indexes, tsvector
-│   └── JobListingStore.cs                    empty — replaced by EF Core
-├── Migrations/                               all migration files
+│   ├── CareerHubDbContext.cs
+│   └── JobListingStore.cs
+├── Migrations/
 ├── DTOs/
+│   ├── PagedResponse.cs                      new — pagination envelope
+│   ├── JobListingFilterQuery.cs              new — filter and sort parameters
+│   ├── UpdateJobListingRequest.cs            new — all nullable fields for PATCH
 │   ├── CreateJobRequest.cs
 │   ├── UpdateJobRequest.cs
 │   ├── JobResponse.cs
@@ -32,7 +35,7 @@ CareerHub.Api/
 │   ├── ApplicationSummary.cs
 │   ├── ApplicationDTOs.cs
 │   ├── CompanyDTOs.cs
-│   ├── JobListingStatsResponse.cs            new — for raw SQL stats endpoint
+│   ├── JobListingStatsResponse.cs
 │   ├── LoginRequest.cs
 │   └── LoginResponse.cs
 ├── Exceptions/
@@ -45,30 +48,30 @@ CareerHub.Api/
 │   ├── UnauthorizedOperationException.cs
 │   └── InvalidListingException.cs
 ├── Repositories/
-│   ├── IJobListingRepository.cs              updated — SearchAsync, GetApplicationStatsAsync
-│   ├── JobListingRepository.cs               updated — compiled query, FTS, raw SQL
+│   ├── IJobListingRepository.cs              updated — paged, company listings, PatchAsync
+│   ├── JobListingRepository.cs               updated — pagination, filtering, sorting, PATCH
 │   ├── ICompanyRepository.cs
 │   ├── CompanyRepository.cs
 │   ├── IApplicationRepository.cs
-│   └── ApplicationRepository.cs             updated — compiled query for HasAlreadyApplied
+│   └── ApplicationRepository.cs
 ├── Services/
 │   ├── ApplicationStatusTransitions.cs
-│   ├── IJobListingService.cs                 updated — SearchAsync, GetApplicationStatsAsync
-│   ├── JobListingService.cs                  updated — two new methods
+│   ├── IJobListingService.cs                 updated — paged and patch methods
+│   ├── JobListingService.cs                  updated — implements paged and patch
 │   ├── ICompanyService.cs
 │   ├── CompanyService.cs
 │   ├── IApplicationService.cs
 │   └── ApplicationService.cs
 ├── Infrastructure/
-│   ├── ServiceCollectionExtensions.cs        updated — registers SlowQueryInterceptor
-│   └── SlowQueryInterceptor.cs               new — logs slow SQL commands
+│   ├── ServiceCollectionExtensions.cs
+│   └── SlowQueryInterceptor.cs
 ├── Middleware/
 │   └── GlobalExceptionHandler.cs
 ├── Controllers/
-│   ├── JobsController.cs                     updated — search and stats endpoints
-│   ├── CompaniesController.cs
-│   ├── ApplicationsController.cs
-│   └── AuthController.cs
+│   ├── JobsController.cs                     updated — versioning, pagination, PATCH, ETags, rate limiting
+│   ├── CompaniesController.cs                updated — versioning
+│   ├── ApplicationsController.cs             updated — versioning, PATCH status, rate limiting
+│   └── AuthController.cs                     updated — versioning
 └── Properties/
     └── launchSettings.json
 ```
@@ -79,22 +82,26 @@ CareerHub.Api/
 
 | Request | What happens | Response |
 | --- | --- | --- |
-| `GET /jobs` | Returns all active listings with company name and application count | 200 OK |
-| `GET /jobs/{id}` | Returns one listing with full application details | 200 OK or 404 |
-| `GET /jobs/search?q={term}` | Full-text search on title and description using GIN index | 200 OK |
-| `GET /jobs/stats?companyId={id}` | Application statistics per listing with RANK | 200 OK |
-| `POST /jobs` | Creates a new listing | 201, 400, or 409 |
-| `PUT /jobs/{id}` | Updates an existing listing | 200, 400, or 404 |
-| `DELETE /jobs/{id}` | Closes a listing | 204 or 404 |
-| `POST /applications/{listingId}` | Applicant applies for a job | 201 or 409 |
-| `GET /applications/listing/{id}` | Employer views all applicants for a listing | 200 OK |
-| `GET /applications/my` | Applicant views their own applications | 200 OK |
-| `PUT /applications/{listingId}/{applicantId}/status` | Employer updates application status | 204 or 422 |
-| `DELETE /applications/{listingId}` | Applicant withdraws their application | 204 or 403 |
-| `GET /companies` | Returns all companies | 200 OK |
-| `POST /companies` | Creates a new company | 201 or 409 |
-| `POST /auth/login` | Returns a signed JWT token | 200 OK or 401 |
-| `GET /auth/me` | Returns current user's username and role | 200 OK or 401 |
+| `GET /api/v1/jobs` | Returns paginated active listings with filters and sort | 200 OK |
+| `GET /api/v1/jobs/{id}` | Returns one listing with ETag for conditional requests | 200 OK, 304, or 404 |
+| `GET /api/v1/jobs/search?q={term}` | Full-text search using GIN index | 200 OK |
+| `GET /api/v1/jobs/stats?companyId={id}` | Application statistics per listing with RANK | 200 OK |
+| `GET /api/v1/jobs/company/{companyId}` | Employer views their own listings paginated | 200 OK |
+| `POST /api/v1/jobs` | Creates a new listing | 201, 400, or 409 |
+| `PUT /api/v1/jobs/{id}` | Fully replaces an existing listing | 200, 400, or 404 |
+| `PATCH /api/v1/jobs/{id}` | Partially updates a listing — only supplied fields change | 200, 400, or 404 |
+| `DELETE /api/v1/jobs/{id}` | Closes a listing | 204 or 404 |
+| `POST /api/v1/applications/{listingId}` | Applicant applies for a job | 201 or 409 |
+| `GET /api/v1/applications/listing/{id}` | Employer views all applicants for a listing | 200 OK |
+| `GET /api/v1/applications/my` | Applicant views their own applications | 200 OK |
+| `PATCH /api/v1/applications/{listingId}/{applicantId}/status` | Employer updates application status | 204 or 422 |
+| `DELETE /api/v1/applications/{listingId}` | Applicant withdraws their application | 204 or 403 |
+| `GET /api/v1/companies` | Returns all companies | 200 OK |
+| `POST /api/v1/companies` | Creates a new company | 201 or 409 |
+| `POST /api/v1/auth/login` | Returns a signed JWT token | 200 OK or 401 |
+| `GET /api/v1/auth/me` | Returns current user's username and role | 200 OK or 401 |
+
+Calls without a version prefix — for example `GET /api/jobs` — are treated as v1 and return identical results.
 
 ---
 
@@ -158,7 +165,7 @@ A migration file is the SQL definition of your schema changes expressed as C# co
 
 **Company to JobListing delete behaviour: Restrict**
 
-A company cannot be deleted while it still has job listings. Silently wiping all of a company's listings when the company is deleted would be dangerous on a job board. If a company needs to be removed, the listings must be explicitly deleted first. This forces deliberate cleanup.
+A company cannot be deleted while it still has job listings. Silently wiping all of a company's listings when the company is deleted would be dangerous on a job board. If a company needs to be removed, the listings must be explicitly deleted first.
 
 **Why the Application entity cannot be a hidden join table**
 
@@ -233,7 +240,7 @@ A Singleton lives for the entire application lifetime. A Scoped service lives fo
 
 ### Index Decisions
 
-**ix_job_listings_status_closingdate — (Status, ClosingDate):** Supports `GetActiveListingsAsync` — the most frequent query called on every page load. Status first because it eliminates all Closed rows immediately. ClosingDate then filters within the small Active set. A query filtering only on ClosingDate cannot use this index.
+**ix_job_listings_status_closingdate — (Status, ClosingDate):** Supports `GetActiveListingsAsync` — the most frequent query called on every page load. Status first because it eliminates all Closed rows immediately. ClosingDate then filters within the small Active set.
 
 **ix_job_listings_companyid_status — (CompanyId, Status):** Supports the employer's own listing view. CompanyId first because one company's listings is a very small subset of the table.
 
@@ -260,11 +267,11 @@ Bitmap Heap Scan on job_listings
 Execution Time: 0.3 ms
 ```
 
-Changed from scanning all 200 rows to scanning 43 matching rows. A Seq Scan reads every row then filters. A Bitmap Index Scan uses the composite index to identify matching row IDs before touching the table. With 50,000 rows the difference would be the application staying online versus crashing.
+Changed from scanning all 200 rows to scanning 43 matching rows. A Seq Scan reads every row then filters. A Bitmap Index Scan uses the composite index to identify matching row IDs before touching the table.
 
 ### Hot Path Justification
 
-**IsOpenForApplicationsAsync:** Called on every application submission. With 1,000 active daily users submitting roughly 3 applications each, this runs approximately 125 times per hour during peak. EF Core rebuilds the LINQ expression tree and generates the SQL plan on every call without compilation. Compiling it at startup amortises that cost across all future calls.
+**IsOpenForApplicationsAsync:** Called on every application submission. With 1,000 active daily users submitting roughly 3 applications each, this runs approximately 125 times per hour during peak. Compiling it at startup amortises the expression tree translation cost across all future calls.
 
 **HasAlreadyAppliedAsync:** Called immediately after `IsOpenForApplicationsAsync` on every submission — same frequency. Two compiled queries run per application attempt.
 
@@ -288,6 +295,64 @@ MaxPoolSize = 10  (development — one instance, less load)
 ```
 
 When all connections are in use, new requests wait up to 15 seconds for one to become available. If none is returned, the client receives a 500 after a 15-second hang — not an immediate failure.
+
+### Pagination Decision
+
+I used offset pagination. Offset uses `Skip` and `Take` in SQL — predictable page numbers and simple for the frontend to display "Page 2 of 10".
+
+The accepted tradeoff: if a new listing is posted between a user fetching page 1 and page 2, the listings shift by one position. The last listing from page 1 might appear again at the top of page 2. For a job board this is acceptable — a user who sees a duplicate listing while browsing is a minor inconvenience, not a data integrity problem.
+
+The implementation issues exactly two database queries per request — one `CountAsync` and one `ToListAsync` applied to the same `IQueryable` to guarantee the count and the data are always consistent. `OrderBy` appears before `Skip` so pagination is deterministic.
+
+### PATCH Race Condition
+
+**The PUT race condition — exact sequence of events:**
+
+Two recruiters open the same listing at the same time. Recruiter A changes the salary to 65000 and submits a full PUT. Recruiter B changes the description and submits a full PUT one second later. B's PUT replaces the entire listing including A's salary field which B still has at the old value. A's salary change is silently overwritten. No error is thrown. No one knows.
+
+**Why nullable DTO prevents it:**
+
+Each recruiter sends only the field they changed. A sends `{ "salaryMin": 65000 }`. B sends `{ "description": "New description" }`. The PATCH implementation only applies non-null fields. Both changes survive independently.
+
+**One remaining limitation:**
+
+You cannot use null to deliberately clear a field. If an employer wants to remove the salary information, sending `{ "salaryMin": null }` is interpreted as "don't change" rather than "set to null". JSON Patch (RFC 6902) solves this with an explicit `{ "op": "remove", "path": "/salaryMin" }` operation. For CareerHub, salary fields are never intended to be removed once set, so this limitation does not affect current requirements.
+
+### Versioning Lifecycle
+
+To introduce a v2 `JobListingResponse` that renames `SalaryMin` to `MinimumSalary`:
+
+Create a `JobListingResponseV2` record with the new field name. Add a new `JobsControllerV2` decorated with `[ApiVersion(2)]`. Keep v1 completely unchanged. Run both simultaneously for at least 6 months. Add a `Sunset` header to v1 responses indicating the removal date. Add a `Deprecation` header with the date v1 was deprecated. After the sunset period, remove the v1 controller. The `api-supported-versions` header already informs clients which versions are active.
+
+### ETag Fingerprint
+
+The current ETag is computed from `{id}-{PostedAt.Ticks}-{SalaryMin}`. A change to Description or Location does not change this ETag. A client who cached the listing would receive 304 and render stale content after a description update.
+
+A stronger ETag would use a `LastModifiedAt` timestamp on the `JobListing` entity updated on every write. Any change to any field updates `LastModifiedAt` which changes the ETag. This field would be set inside `SaveChangesAsync` or via a DbContext interceptor.
+
+### Rate Limiting
+
+**Why the apply policy uses a 60-minute window:**
+
+A 60-second window would be too short. A legitimate applicant might apply to several jobs in one session and hit the limit accidentally. A 60-minute window of 5 submissions is generous for a normal job seeker and restrictive enough to block automated bots submitting thousands of fake applications.
+
+**Why IP-based rate limiting is insufficient for authenticated requests:**
+
+An office building with many employees sharing a NAT gateway all appear as one IP address. If one employee hits the limit, the entire office is blocked. A bot using a VPN pool can rotate IPs and bypass the limit entirely. The correct partition key for authenticated requests is the `sub` claim from the JWT — the user's identity. This limits each individual user regardless of which IP, device, or VPN they use.
+
+### CORS — AllowAnyOrigin and AllowCredentials
+
+Calling `AllowAnyOrigin()` together with `AllowCredentials()` causes a startup exception:
+
+```
+The CORS protocol does not allow specifying a wildcard origin with credentials.
+```
+
+A wildcard origin tells the browser any website can call the API. `AllowCredentials` tells the browser to send the Authorization header. Together they would allow any malicious website to make credentialed requests using the user's own token. The browser specification forbids this combination. Specific origins must be listed explicitly.
+
+### Connection Pool — Effect of Rate Limiting
+
+Rate limiting converts burst traffic into a steady stream. Without rate limiting, 1,000 users hitting the search endpoint simultaneously could exhaust the connection pool of 30. With the sliding window policy of 30 requests per 60 seconds, the maximum concurrent search connections at any moment is a small fraction of the pool. The pool sizing calculation from Assignment 2.4 remains correct and is now conservative.
 
 ---
 
@@ -333,95 +398,712 @@ Browser opens at **http://localhost:5000/scalar/v1**
 
 ### Test 1 — Layer separation
 
-Open `Services/JobListingService.cs` and `Services/ApplicationService.cs`. Confirm neither contains `using Microsoft.EntityFrameworkCore`.
+Open `Services/JobListingService.cs` and `Services/ApplicationService.cs` in VS Code. Confirm neither contains `using Microsoft.EntityFrameworkCore`. Screenshot both files.
 
 ### Test 2 — Duplicate application
 
-Enable query logging in `Program.cs`:
-```csharp
-options.UseNpgsql(...).LogTo(Console.WriteLine, LogLevel.Information)
-```
-
-Get employer token. Create a company. Create a job. Get applicant token. Apply — confirm 201 and INSERT in terminal. Apply again — confirm 409 and no second INSERT.
+Get employer token. Create a company. Create a job. Get applicant token. Apply — confirm 201 and INSERT in terminal. Apply again — confirm 409 and no second INSERT. Screenshot both responses.
 
 ### Test 3 — Status transition
 
-Using employer token, try PUT /Applications/{jobId}/{applicantId}/status with `{ "status": "Offered" }` on a Submitted application. Confirm 422. Then walk the valid path: UnderReview → Shortlisted → Offered. Confirm 204 each time.
+Using employer token, try PATCH /api/v1/Applications/{jobId}/{applicantId}/status with `{ "status": "Offered" }` on a Submitted application. Confirm 422. Then walk the valid path: UnderReview → Shortlisted → Offered. Confirm 204 each time. Screenshot.
 
 ### Test 4 — Lifetime validation
 
-Change `AddScoped<IJobListingService, JobListingService>()` to `AddSingleton`. Run the app. Confirm startup error. Fix back to `AddScoped`. Confirm clean startup.
+Change `AddScoped<IJobListingService, JobListingService>()` to `AddSingleton`. Run the app. Confirm startup error. Fix back to `AddScoped`. Confirm clean startup. Screenshot the error.
 
 ### Test 5 — Controller line count
 
-Show any two controller actions. Each must be 10 lines or less with no business logic.
+Open any two controller actions in VS Code. Each must be 10 lines or less with no business logic. Screenshot.
 
 ### Test 6 — End-to-end flow
 
-With logging enabled: create a job listing, show the INSERT in the terminal and 201 response. Then try to create a job with a non-existent company ID. Confirm 404.
+With logging enabled: create a job listing, show the INSERT in the terminal and 201 response. Then try to create a job with a non-existent company ID. Confirm 404. Screenshot.
 
 ### Test 7 — Extension method registration
 
-Show `Program.cs` contains no direct `AddScoped`, `AddTransient`, or `AddSingleton` calls — only extension method calls.
+Open `Program.cs` in VS Code. Confirm it contains no direct `AddScoped`, `AddTransient`, or `AddSingleton` calls for application services — only extension method calls like `AddJobListingFeature()`. Screenshot.
 
 ---
 
 ## How to Test — Assignment 2.4
 
-### Test 1 — Constraint enforcement
+All psql tests require connecting to the database first. Open a terminal and run:
 
 ```bash
-docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "INSERT INTO job_listings (\"Id\", \"Title\", \"Description\", \"CompanyId\", \"Location\", \"Type\", \"PostedAt\", \"IsActive\", \"ClosingDate\", \"Status\", \"SalaryMin\", \"SalaryMax\") SELECT gen_random_uuid(), 'Bad Salary', 'Test description here', \"Id\", 'Joburg', 'FullTime', NOW(), true, NOW() + interval '30 days', 'Active', 5000, 1000 FROM companies LIMIT 1;"
+docker exec -it careerhub-postgres psql -U postgres -d CareerHub
+```
+
+### Test 1 — Constraint enforcement
+
+**Bad salary range:**
+
+```sql
+INSERT INTO job_listings ("Id", "Title", "Description", "CompanyId", "Location", "Type", "PostedAt", "IsActive", "ClosingDate", "Status", "SalaryMin", "SalaryMax")
+VALUES (
+  gen_random_uuid(),
+  'Bad Salary',
+  'Test description here',
+  (SELECT "Id" FROM companies LIMIT 1),
+  'Joburg',
+  'FullTime',
+  NOW(),
+  true,
+  NOW() + interval '30 days',
+  'Active',
+  5000,
+  1000
+);
 ```
 
 Expected: `new row violates check constraint "ck_job_listings_salarymax_gt_min"`
 
-```bash
-docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "INSERT INTO applications (\"JobListingId\", \"ApplicantId\", \"SubmittedAt\", \"Status\") SELECT \"Id\", 'a0000000-0000-0000-0000-000000000001', NOW() + interval '1 day', 'Submitted' FROM job_listings LIMIT 1;"
+**ClosingDate before PostedAt:**
+
+```sql
+INSERT INTO job_listings ("Id", "Title", "Description", "CompanyId", "Location", "Type", "PostedAt", "IsActive", "ClosingDate", "Status")
+VALUES (
+  gen_random_uuid(),
+  'Bad Date',
+  'Test description here',
+  (SELECT "Id" FROM companies LIMIT 1),
+  'Joburg',
+  'FullTime',
+  NOW(),
+  true,
+  NOW() - interval '1 day',
+  'Active'
+);
+```
+
+Expected: `new row violates check constraint "ck_job_listings_closingdate_after_postedat"`
+
+**Future SubmittedAt:**
+
+```sql
+INSERT INTO applications ("JobListingId", "ApplicantId", "SubmittedAt", "Status")
+VALUES (
+  (SELECT "Id" FROM job_listings LIMIT 1),
+  'a0000000-0000-0000-0000-000000000001',
+  NOW() + interval '1 day',
+  'Submitted'
+);
 ```
 
 Expected: `new row violates check constraint "ck_applications_submittedAt_not_future"`
 
+Screenshot all three errors. Type `\q` to exit psql.
+
 ### Test 2 — Index verification
 
-```bash
-docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "\d job_listings"
-docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "\d applications"
+In psql run:
+
+```sql
+\d job_listings
+\d applications
 ```
 
-Confirm all five indexes are present.
+Confirm these indexes exist on job_listings: `ix_job_listings_status_closingdate`, `ix_job_listings_companyid_status`, `ix_job_listings_searchvector` (GIN), `ix_job_listings_title_companyid`.
+
+Confirm these indexes exist on applications: `ix_applications_joblistingid_applicantid`, `ix_applications_joblistingid`.
+
+Screenshot both outputs.
 
 ### Test 3 — EXPLAIN ANALYZE before and after
 
-Seed 200 listings:
-```bash
-docker exec -it careerhub-postgres psql -U postgres -d CareerHub -c "
-INSERT INTO job_listings (\"Id\", \"Title\", \"Description\", \"CompanyId\", \"Location\", \"Type\", \"PostedAt\", \"IsActive\", \"ClosingDate\", \"Status\")
-SELECT gen_random_uuid(), 'Developer Role ' || gs, 'Test description for listing number ' || gs || ' at our company.', (SELECT \"Id\" FROM companies ORDER BY RANDOM() LIMIT 1), 'Bloemfontein', 'FullTime', NOW() - (random() * interval '60 days'), true, NOW() + (random() * interval '180 days'), CASE WHEN random() > 0.3 THEN 'Active' ELSE 'Closed' END
-FROM generate_series(1, 200) gs;"
+**Drop the index:**
+
+```sql
+DROP INDEX IF EXISTS ix_job_listings_status_closingdate;
 ```
 
-Drop index, run EXPLAIN ANALYZE, show Seq Scan. Recreate index, run EXPLAIN ANALYZE, show Bitmap Index Scan.
+**Run EXPLAIN ANALYZE — should show Seq Scan:**
+
+```sql
+EXPLAIN ANALYZE SELECT * FROM job_listings WHERE "Status" = 'Active' AND "ClosingDate" > NOW();
+```
+
+Screenshot showing `Seq Scan`.
+
+**Recreate the index:**
+
+```sql
+CREATE INDEX ix_job_listings_status_closingdate ON job_listings("Status", "ClosingDate");
+```
+
+**Run EXPLAIN ANALYZE again — should show Bitmap Index Scan:**
+
+```sql
+EXPLAIN ANALYZE SELECT * FROM job_listings WHERE "Status" = 'Active' AND "ClosingDate" > NOW();
+```
+
+Screenshot showing `Bitmap Index Scan`. Type `\q` to exit psql.
 
 ### Test 4 — Full-text search
 
-GET /Jobs/search?q=developer — show matching results. GET /Jobs/search?q=developing — show stemming returns developer results too. Run EXPLAIN ANALYZE to confirm GIN index is used.
+In Scalar call **GET /api/v{version}/Jobs/search** (version = 1) with query parameter `q = developer`. Confirm matching results. Change to `q = developing`. Confirm the same listings come back — stemming works. Screenshot both.
 
 ### Test 5 — Compiled query confirmation
 
-Show `private static readonly Func<...>` fields in `JobListingRepository.cs` and `ApplicationRepository.cs`.
+Open `Repositories/JobListingRepository.cs` and `Repositories/ApplicationRepository.cs` in VS Code. Show the `private static readonly Func<...>` fields near the top of each file. Screenshot both.
 
 ### Test 6 — Slow query interceptor
 
-Set `SlowQueryThresholdMs` to 0. Run app. Call GET /Jobs. Show warnings in terminal. Restore to 100. Show no warnings.
+Open `appsettings.Development.json` and change `SlowQueryThresholdMs` to `0`. Restart with `dotnet run`. Call GET /api/v1/jobs. Show `[WRN]` warnings in the terminal. Screenshot.
+
+Restore `SlowQueryThresholdMs` to `100`. Restart. Call GET /api/v1/jobs again. No warnings. Screenshot the clean terminal.
 
 ### Test 7 — Raw SQL statistics
 
-Call GET /Jobs/stats?companyId={id}. Show response with per-status counts and rank field. Confirm the listing with most applications has rank 1.
+In Scalar call **GET /api/v{version}/Jobs/stats** (version = 1) with query parameter `companyId = {paste-company-id}`. Use employer token. Confirm the response has `rank`, `totalApplications`, and per-status counts. Screenshot.
 
 ### Test 8 — Connection pool
 
-Show `appsettings.json` with `Maximum Pool Size=30` and `appsettings.Development.json` with `Maximum Pool Size=10`. Explain the calculation.
+Open both files in VS Code. Screenshot `appsettings.json` showing `Minimum Pool Size=5;Maximum Pool Size=30` and `appsettings.Development.json` showing `Minimum Pool Size=2;Maximum Pool Size=10`.
+
+---
+
+## How to Test — Assignment 3.1 (Full Step-by-Step)
+
+Tools used: Test 1 and Test 2 use **Postman**. All other tests use **Scalar**.
+
+### Before anything — start the app
+
+```bash
+docker start careerhub-postgres
+cd CareerHub.Api
+dotnet run
+```
+
+Open **http://localhost:5000/scalar/v1** for Scalar tests.
+
+Open **Postman** for CORS and versioning tests.
+
+---
+
+### Test 1 — CORS (Postman)
+
+Open Postman. Create a new **GET** request.
+
+**URL:**
+```
+http://localhost:5000/api/v1/jobs
+```
+
+Click the **Headers** tab (not Params). Add this header:
+
+```
+Key:    Origin
+Value:  http://localhost:3000
+```
+
+Click **Send**.
+
+Click the **Headers** tab in the response section. Confirm these headers:
+
+```
+Access-Control-Allow-Credentials:  true
+Access-Control-Allow-Origin:       http://localhost:3000
+Access-Control-Expose-Headers:     X-Total-Count
+X-Total-Count:                     0
+api-supported-versions:            1.0
+```
+
+Screenshot the Postman response headers.
+
+---
+
+### Test 2 — Versioning (Postman)
+
+Keep the Origin header from Test 1.
+
+**Unversioned URL — change the URL to:**
+```
+http://localhost:5000/api/jobs
+```
+
+Click Send. Expected: 200 OK. Confirm `api-supported-versions: 1.0` in response headers. Screenshot.
+
+**Versioned URL — change the URL to:**
+```
+http://localhost:5000/api/v1/jobs
+```
+
+Click Send. Expected: 200 OK — identical response. Screenshot.
+
+**v2 does not exist — change the URL to:**
+```
+http://localhost:5000/api/v2/jobs
+```
+
+Click Send. Expected: 404 Not Found. Screenshot.
+
+---
+
+### Test 3 — Create test data (Scalar)
+
+You need data before pagination, filtering, PATCH, and ETags can be tested.
+
+**Step 1 — get employer token**
+
+In Scalar find **POST /api/Auth/login**. Request body:
+
+```json
+{ "username": "employer", "password": "password123" }
+```
+
+Copy the token from the response.
+
+For every request below that needs a token, add this header manually in Scalar:
+
+```
+Header name:  Authorization
+Header value: Bearer PASTE-YOUR-TOKEN-HERE
+```
+
+**Step 2 — create 5 companies**
+
+In Scalar find **POST /api/v{version}/Companies** (version = 1). Add the Authorization header. Send each one separately:
+
+```json
+{ "name": "BitCube", "website": "https://bitcube.co.za", "industry": "Technology" }
+```
+
+```json
+{ "name": "Google", "industry": "Technology" }
+```
+
+```json
+{ "name": "Amazon", "industry": "Cloud" }
+```
+
+```json
+{ "name": "Microsoft", "industry": "Software" }
+```
+
+```json
+{ "name": "Netflix", "industry": "Streaming" }
+```
+
+Copy each company `id` from the responses.
+
+**Step 3 — create 10 job listings (2 per company)**
+
+In Scalar find **POST /api/v{version}/Jobs** (version = 1). Add the Authorization header. Replace the companyId with the actual id for each pair:
+
+BitCube jobs:
+
+```json
+{
+  "title": "Senior Developer",
+  "companyId": "PASTE-BITCUBE-ID",
+  "location": "Bloemfontein",
+  "description": "Build scalable applications for our enterprise platform.",
+  "type": "FullTime",
+  "salaryMin": 45000,
+  "salaryMax": 65000,
+  "closingDate": "2027-01-01T00:00:00Z"
+}
+```
+
+```json
+{
+  "title": "DevOps Engineer",
+  "companyId": "PASTE-BITCUBE-ID",
+  "location": "Johannesburg",
+  "description": "Manage infrastructure and deployment pipelines for the team.",
+  "type": "FullTime",
+  "salaryMin": 55000,
+  "salaryMax": 75000,
+  "closingDate": "2027-01-01T00:00:00Z"
+}
+```
+
+Google jobs:
+
+```json
+{
+  "title": "Frontend Developer",
+  "companyId": "PASTE-GOOGLE-ID",
+  "location": "Cape Town",
+  "description": "Build modern web applications using React and TypeScript.",
+  "type": "FullTime",
+  "salaryMin": 50000,
+  "salaryMax": 70000,
+  "closingDate": "2027-01-01T00:00:00Z"
+}
+```
+
+```json
+{
+  "title": "Data Engineer",
+  "companyId": "PASTE-GOOGLE-ID",
+  "location": "Bloemfontein",
+  "description": "Design and maintain data pipelines for analytics.",
+  "type": "FullTime",
+  "salaryMin": 60000,
+  "salaryMax": 80000,
+  "closingDate": "2027-01-01T00:00:00Z"
+}
+```
+
+Amazon jobs:
+
+```json
+{
+  "title": "Cloud Architect",
+  "companyId": "PASTE-AMAZON-ID",
+  "location": "Johannesburg",
+  "description": "Design cloud infrastructure solutions for enterprise clients.",
+  "type": "FullTime",
+  "salaryMin": 70000,
+  "salaryMax": 90000,
+  "closingDate": "2027-01-01T00:00:00Z"
+}
+```
+
+```json
+{
+  "title": "Backend Developer",
+  "companyId": "PASTE-AMAZON-ID",
+  "location": "Cape Town",
+  "description": "Build RESTful APIs and microservices for our platform.",
+  "type": "Contract",
+  "salaryMin": 40000,
+  "salaryMax": 60000,
+  "closingDate": "2027-01-01T00:00:00Z"
+}
+```
+
+Microsoft jobs:
+
+```json
+{
+  "title": "Software Engineer",
+  "companyId": "PASTE-MICROSOFT-ID",
+  "location": "Pretoria",
+  "description": "Develop enterprise software solutions for our clients.",
+  "type": "FullTime",
+  "salaryMin": 65000,
+  "salaryMax": 85000,
+  "closingDate": "2027-01-01T00:00:00Z"
+}
+```
+
+```json
+{
+  "title": "QA Engineer",
+  "companyId": "PASTE-MICROSOFT-ID",
+  "location": "Bloemfontein",
+  "description": "Ensure software quality through automated and manual testing.",
+  "type": "FullTime",
+  "salaryMin": 35000,
+  "salaryMax": 55000,
+  "closingDate": "2027-01-01T00:00:00Z"
+}
+```
+
+Netflix jobs:
+
+```json
+{
+  "title": "Mobile Developer",
+  "companyId": "PASTE-NETFLIX-ID",
+  "location": "Johannesburg",
+  "description": "Build cross-platform mobile applications using React Native.",
+  "type": "FullTime",
+  "salaryMin": 48000,
+  "salaryMax": 68000,
+  "closingDate": "2027-01-01T00:00:00Z"
+}
+```
+
+```json
+{
+  "title": "Security Engineer",
+  "companyId": "PASTE-NETFLIX-ID",
+  "location": "Cape Town",
+  "description": "Protect our platform and customer data from security threats.",
+  "type": "FullTime",
+  "salaryMin": 72000,
+  "salaryMax": 92000,
+  "closingDate": "2027-01-01T00:00:00Z"
+}
+```
+
+Copy one job `id` — you need it for PATCH and ETag tests.
+
+**Step 4 — seed 200 extra listings for pagination**
+
+Open a new terminal (keep the app running):
+
+```bash
+docker exec -it careerhub-postgres psql -U postgres -d CareerHub
+```
+
+Paste this SQL and press Enter:
+
+```sql
+INSERT INTO job_listings ("Id", "Title", "Description", "CompanyId", "Location", "Type", "PostedAt", "IsActive", "ClosingDate", "Status")
+SELECT
+  gen_random_uuid(),
+  'Developer Role ' || gs,
+  'This is a test description for listing number ' || gs || ' at our company.',
+  (SELECT "Id" FROM companies ORDER BY RANDOM() LIMIT 1),
+  'Bloemfontein',
+  'FullTime',
+  NOW() - (random() * interval '60 days'),
+  true,
+  NOW() + (random() * interval '180 days'),
+  'Active'
+FROM generate_series(1, 200) gs;
+```
+
+Expected: `INSERT 0 200`. Type `\q` to exit psql.
+
+---
+
+### Test 4 — Pagination (Scalar)
+
+In Scalar find **GET /api/v{version}/Jobs** (version = 1). Add query parameters:
+
+```
+page     = 1
+pageSize = 5
+```
+
+Click Send.
+
+Expected:
+```json
+{
+  "data": [ ...5 listings... ],
+  "page": 1,
+  "pageSize": 5,
+  "totalCount": 210,
+  "totalPages": 42,
+  "hasNextPage": true,
+  "hasPreviousPage": false
+}
+```
+
+Check the response headers for `X-Total-Count: 210`. Screenshot.
+
+**Page 2:** change to `page = 2`, `pageSize = 5`. Expected: different listings, `hasPreviousPage: true`. Screenshot.
+
+**Default — no parameters:** Call **GET /api/Jobs** with no parameters. Expected: 20 results, `page: 1`. Screenshot.
+
+---
+
+### Test 5 — Filtering and Sorting (Scalar)
+
+In Scalar find **GET /api/v{version}/Jobs** (version = 1). Add query parameters:
+
+```
+employmentType = FullTime
+salaryMin      = 50000
+sort           = salaryMin
+```
+
+Click Send. Expected: every result is FullTime with SalaryMin >= 50000, sorted lowest salary first. Screenshot.
+
+Add one more parameter:
+
+```
+dir = desc
+```
+
+Click Send. Expected: same results but highest salary first. Screenshot.
+
+---
+
+### Test 6 — PATCH partial update (Scalar)
+
+**Step 1 — get employer token**
+
+In Scalar find **POST /api/Auth/login**. Body:
+
+```json
+{ "username": "employer", "password": "password123" }
+```
+
+Copy the token.
+
+**Step 2 — note current salary**
+
+In Scalar call **GET /api/v{version}/Jobs/{id}** (version = 1). Paste a job id. Note the current `salaryMin`.
+
+**Step 3 — patch only the salary**
+
+In Scalar find **PATCH /api/v{version}/Jobs/{id}** (version = 1). Set the job id. Add header:
+
+```
+Authorization: Bearer PASTE-YOUR-TOKEN
+```
+
+Body:
+
+```json
+{ "salaryMin": 75000 }
+```
+
+Click Send. Expected: 200 OK. Only `salaryMin` changed. Screenshot.
+
+**Step 4 — verify**
+
+Call GET the same job id. Confirm `salaryMin` is now 75000 and nothing else changed. Screenshot.
+
+**Step 5 — invalid salary range**
+
+Same PATCH endpoint with body:
+
+```json
+{ "salaryMin": 90000, "salaryMax": 50000 }
+```
+
+Expected: 400 Bad Request. Screenshot.
+
+---
+
+### Test 7 — PATCH application status (Scalar)
+
+**Step 1 — apply as applicant1**
+
+In Scalar find **POST /api/Auth/login**. Body:
+
+```json
+{ "username": "applicant1", "password": "password123" }
+```
+
+Copy the applicant token. In Scalar find **POST /api/v{version}/Applications/{listingId}** (version = 1). Set `listingId` to any job id. Add header:
+
+```
+Authorization: Bearer PASTE-APPLICANT-TOKEN
+```
+
+No body needed. Click Send. Expected: 201 Created. The applicant id is `a0000000-0000-0000-0000-000000000001`.
+
+**Step 2 — switch to employer token**
+
+In Scalar find **POST /api/Auth/login**. Body:
+
+```json
+{ "username": "employer", "password": "password123" }
+```
+
+Copy the employer token.
+
+**Step 3 — illegal transition**
+
+In Scalar find **PATCH /api/v{version}/Applications/{listingId}/{applicantId}/status** (version = 1). Set `listingId` to the same job id. Set `applicantId` to `a0000000-0000-0000-0000-000000000001`. Add header:
+
+```
+Authorization: Bearer PASTE-EMPLOYER-TOKEN
+```
+
+Body:
+
+```json
+{ "status": "Offered" }
+```
+
+Click Send. Expected: 422 Unprocessable Entity. Screenshot.
+
+**Step 4 — valid transition**
+
+Same endpoint, same header. Body:
+
+```json
+{ "status": "UnderReview" }
+```
+
+Click Send. Expected: 204 No Content. Screenshot.
+
+---
+
+### Test 8 — ETags (Scalar)
+
+**Step 1 — first request**
+
+In Scalar call **GET /api/v{version}/Jobs/{id}** (version = 1). Use any job id. Click Send.
+
+In the response headers find `ETag`. Copy the full value including the quotes. Example:
+
+```
+"fa292fba-638765432100000-45000"
+```
+
+Screenshot the response with the ETag header.
+
+**Step 2 — conditional request**
+
+Call the same endpoint again. Add this request header in Scalar:
+
+```
+Header name:  If-None-Match
+Header value: "fa292fba-638765432100000-45000"
+```
+
+Click Send. Expected: **304 Not Modified** — no body returned. Screenshot.
+
+**Step 3 — change the listing**
+
+With employer token call **PATCH /api/v{version}/Jobs/{id}** (version = 1). Add Authorization header. Body:
+
+```json
+{ "salaryMin": 80000 }
+```
+
+**Step 4 — request with old ETag**
+
+Call **GET /api/v{version}/Jobs/{id}** again with the same old `If-None-Match` header from Step 2.
+
+Expected: **200 OK** — the listing changed so the old ETag no longer matches. Check the response headers for a new `ETag` value. Screenshot.
+
+---
+
+### Test 9 — Rate limiting (Scalar)
+
+**Step 1 — lower the search limit**
+
+Open `Program.cs` in VS Code. Find the search policy and change `PermitLimit` to 2:
+
+```csharp
+options.AddSlidingWindowLimiter("search", o =>
+{
+    o.PermitLimit      = 2;
+    o.Window           = TimeSpan.FromSeconds(60);
+    o.SegmentsPerWindow = 6;
+    o.QueueLimit       = 0;
+});
+```
+
+Restart the app with `dotnet run`.
+
+**Step 2 — make 3 search requests quickly**
+
+In Scalar find **GET /api/v{version}/Jobs/search** (version = 1). Add query parameter:
+
+```
+q = developer
+```
+
+Click Send 3 times quickly.
+
+First request: 200 OK.
+Second request: 200 OK.
+Third request: **429 Too Many Requests**.
+
+On the 429 response check:
+
+Response header: `Retry-After: 60`
+Response body: `Rate limit exceeded. Please retry after 60 seconds.`
+
+Screenshot the 429 response.
+
+**Step 3 — restore the limit**
+
+Change `PermitLimit` back to 30 in `Program.cs`. Restart. Confirm search works normally.
 
 ---
 
@@ -439,11 +1121,21 @@ a0000000-0000-0000-0000-000000000001 | Alice Smith | alice@example.com | applica
 a0000000-0000-0000-0000-000000000002 | Bob Jones   | bob@example.com   | applicant2
 ```
 
-If the table is empty run:
-```bash
-dotnet ef migrations add SeedApplicants
-dotnet ef database update
-```
+---
+
+## Screenshots Checklist — Assignment 3.1
+
+| Test | Tool | What to capture |
+| --- | --- | --- |
+| 1 — CORS | Postman | Response headers showing Access-Control-Allow-Origin, Access-Control-Allow-Credentials, X-Total-Count |
+| 2 — Versioning | Postman | /api/jobs 200 + /api/v1/jobs 200 + api-supported-versions header + /api/v2/jobs 404 |
+| 3 — Create data | Scalar | Companies created, jobs created, 200 seeded via psql |
+| 4 — Pagination | Scalar | Page 1 envelope + Page 2 envelope + X-Total-Count header + default 20 results |
+| 5 — Filtering | Scalar | Filtered results + reversed sort with dir=desc |
+| 6 — PATCH | Scalar | 200 PATCH + GET before + GET after + 400 invalid salary |
+| 7 — Status PATCH | Scalar | 422 illegal transition + 204 valid transition |
+| 8 — ETags | Scalar | 200 with ETag + 304 no body + 200 with new ETag |
+| 9 — Rate limiting | Scalar | 429 with Retry-After header and plain text body |
 
 ---
 
