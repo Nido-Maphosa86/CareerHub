@@ -9,6 +9,7 @@ namespace CareerHub.Api.Controllers;
 [ApiController]
 [ApiVersion(1)]
 [Route("api/v{version:apiVersion}/[controller]")]
+[Route("api/[controller]")]
 public class CompaniesController(ICompanyService companyService) : ControllerBase
 {
     [HttpGet]
