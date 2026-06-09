@@ -12,9 +12,9 @@ namespace CareerHub.Api.Controllers;
 [ApiController]
 [ApiVersion(1)]
 [Route("api/v{version:apiVersion}/[controller]")]
+[Route("api/[controller]")]
 public class ApplicationsController(IApplicationService applicationService) : ControllerBase
 {
-    // ── POST /api/v1/applications/{listingId} — apply with rate limit ────
     [Authorize(Roles = "Applicant")]
     [HttpPost("{listingId:guid}")]
     [EnableRateLimiting("apply")]
@@ -26,14 +26,12 @@ public class ApplicationsController(IApplicationService applicationService) : Co
         return Created($"/api/v1/applications/{listingId}", response);
     }
 
-    // ── GET /api/v1/applications/listing/{listingId} — employer dashboard ──
     [Authorize(Roles = "Employer")]
     [HttpGet("listing/{listingId:guid}")]
     public async Task<ActionResult<IEnumerable<ApplicationResponse>>> GetByListingAsync(
         Guid listingId, CancellationToken ct) =>
         Ok(await applicationService.GetByListingIdAsync(listingId, ct));
 
-    // ── GET /api/v1/applications/my — applicant history with ETag ────────
     [Authorize(Roles = "Applicant")]
     [HttpGet("my")]
     public async Task<ActionResult<IEnumerable<ApplicationResponse>>> GetMyApplicationsAsync(
@@ -43,10 +41,6 @@ public class ApplicationsController(IApplicationService applicationService) : Co
         return Ok(await applicationService.GetByApplicantIdAsync(applicantId, ct));
     }
 
-    // ── PATCH /api/v1/applications/{listingId}/{applicantId}/status ───────
-    // Employer advances an application through the review workflow.
-    // Status transitions are validated by ApplicationStatusTransitions.
-    // Illegal transitions return 422 Unprocessable Entity.
     [Authorize(Roles = "Employer")]
     [HttpPatch("{listingId:guid}/{applicantId:guid}/status")]
     public async Task<ActionResult> UpdateStatusAsync(
@@ -59,7 +53,6 @@ public class ApplicationsController(IApplicationService applicationService) : Co
         return NoContent();
     }
 
-    // ── DELETE /api/v1/applications/{listingId} — applicant withdraws ────
     [Authorize(Roles = "Applicant")]
     [HttpDelete("{listingId:guid}")]
     public async Task<ActionResult> WithdrawAsync(Guid listingId, CancellationToken ct)
