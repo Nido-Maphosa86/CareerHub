@@ -11,13 +11,14 @@ namespace CareerHub.Api.Controllers;
 [ApiController]
 [ApiVersion(1)]
 [Route("api/v{version:apiVersion}/[controller]")]
+[Route("api/[controller]")]
 public class AuthController(IConfiguration configuration) : ControllerBase
 {
     private static readonly (string Username, string Password, string Role, Guid? ApplicantId)[] _users =
     [
-        ("employer",    "password123", "Employer",  null),
-        ("applicant1",  "password123", "Applicant", CareerHubDbContext.Applicant1Id),
-        ("applicant2",  "password123", "Applicant", CareerHubDbContext.Applicant2Id),
+        ("employer",   "password123", "Employer",  null),
+        ("applicant1", "password123", "Applicant", CareerHubDbContext.Applicant1Id),
+        ("applicant2", "password123", "Applicant", CareerHubDbContext.Applicant2Id),
     ];
 
     [HttpPost("login")]
