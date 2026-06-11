@@ -46,7 +46,7 @@ jobs:
         run: dotnet build --no-restore --configuration Release
 
       # Step 5 — run ALL tests: unit, integration, and repository.
-      # --no-build skips building again — step 4 already did it.
+      # --no- build skips building again — step 4 already did it.
       # The TestContainers tests start a real PostgreSQL container
       # using the Docker that is pre-installed on ubuntu-latest.
       - name: Test
