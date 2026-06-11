@@ -1141,6 +1141,9 @@ a0000000-0000-0000-0000-000000000002 | Bob Jones   | bob@example.com   | applica
 
 ## Git history
 
-```bash
-git log --oneline --graph --all
-```
+Named `Test1`, `Test2`, `Test3` instead, the CI failure log would
+say only "Test2 failed" — you would have to open the source file
+to find out what Test2 actually checks. Every minute of debugging
+starts with that lookup. With descriptive names, the failure
+message in the CI log IS the explanation.
+.....................
