@@ -5,7 +5,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
-using NpgsqlTypes;
 
 #nullable disable
 
@@ -88,16 +87,9 @@ namespace CareerHub.Api.Migrations
 
                     b.HasKey("ApplicantId", "JobListingId");
 
-                    b.HasIndex("JobListingId")
-                        .HasDatabaseName("ix_applications_joblistingid");
+                    b.HasIndex("JobListingId");
 
-                    b.HasIndex("JobListingId", "ApplicantId")
-                        .HasDatabaseName("ix_applications_joblistingid_applicantid");
-
-                    b.ToTable("applications", null, t =>
-                        {
-                            t.HasCheckConstraint("ck_applications_submittedAt_not_future", "\"SubmittedAt\" <= NOW()");
-                        });
+                    b.ToTable("applications", (string)null);
                 });
 
             modelBuilder.Entity("CareerHub.Api.Models.Company", b =>
@@ -161,16 +153,8 @@ namespace CareerHub.Api.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
-                    b.Property<NpgsqlTsVector>("SearchVector")
-                        .IsRequired()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("tsvector")
-                        .HasComputedColumnSql("to_tsvector('english', coalesce(\"Title\", '') || ' ' || coalesce(\"Description\", ''))", true);
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Title")
                         .IsRequired()
@@ -184,29 +168,13 @@ namespace CareerHub.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("SearchVector")
-                        .HasDatabaseName("ix_job_listings_searchvector");
-
-                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("SearchVector"), "GIN");
-
-                    b.HasIndex("CompanyId", "Status")
-                        .HasDatabaseName("ix_job_listings_companyid_status");
-
-                    b.HasIndex("Status", "ClosingDate")
-                        .HasDatabaseName("ix_job_listings_status_closingdate");
+                    b.HasIndex("CompanyId");
 
                     b.HasIndex("Title", "CompanyId")
                         .IsUnique()
                         .HasDatabaseName("ix_job_listings_title_companyid");
 
-                    b.ToTable("job_listings", null, t =>
-                        {
-                            t.HasCheckConstraint("ck_job_listings_closingdate_after_postedat", "\"ClosingDate\" > \"PostedAt\"");
-
-                            t.HasCheckConstraint("ck_job_listings_salarymax_gt_min", "\"SalaryMax\" IS NULL OR \"SalaryMin\" IS NULL OR \"SalaryMax\" > \"SalaryMin\"");
-
-                            t.HasCheckConstraint("ck_job_listings_salarymin_positive", "\"SalaryMin\" IS NULL OR \"SalaryMin\" > 0");
-                        });
+                    b.ToTable("job_listings", (string)null);
                 });
 
             modelBuilder.Entity("CareerHub.Api.Models.Application", b =>

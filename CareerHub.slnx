@@ -1,4 +1,0 @@
-<Solution>
-  <Project Path="CareerHub.Api.Tests/CareerHub.Api.Tests.csproj" />
-  <Project Path="CareerHub.Api/CareerHub.Api.csproj" />
-</Solution>
