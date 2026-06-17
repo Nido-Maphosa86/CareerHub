@@ -1,65 +1,142 @@
-import Image from "next/image";
+
+"use client";
+
+import { JobList } from "@/src/components/JobList";
+import { JobListing } from "@/src/types";
+import { useState } from "react";
+
+
+
+const jobs: JobListing[] = [
+  {
+    id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    title: "Senior Full Stack Developer",
+    company: "BitCube",
+    location: "Bloemfontein",
+    employmentType: "FullTime",
+    salaryMin: 55000,
+    salaryMax: 75000,
+    
+    postedAt: new Date().toISOString(),
+    isActive: true,
+    applicantCount: 7,
+  },
+  {
+    id: "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+    title: "DevOps Engineer",
+    company: "Takealot",
+    location: "Cape Town",
+    employmentType: "FullTime",
+    salaryMin: 60000,
+    salaryMax: 85000,
+    
+    postedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+    isActive: true,
+    applicantCount: 12,
+  },
+  {
+    id: "c3d4e5f6-a7b8-9012-cdef-123456789012",
+    title: "React Frontend Developer",
+    company: "FNB",
+    location: "Johannesburg",
+    employmentType: "Contract",
+    salaryMin: 45000,
+    salaryMax: 65000,
+    
+    postedAt: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
+    isActive: true,
+        applicantCount: 0,
+  },
+  {
+    id: "d4e5f6a7-b8c9-0123-defa-234567890123",
+    title: "Junior Software Developer",
+    company: "Standard Bank",
+    location: "Johannesburg",
+    employmentType: "Internship",
+    salaryMin: 20000,
+    salaryMax: 30000,
+   
+    postedAt: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString(),
+    isActive: true,
+    applicantCount: 23,
+  },
+  {
+    id: "e5f6a7b8-c9d0-1234-efab-345678901234",
+    title: "Data Analyst",
+    company: "Discovery Health",
+    location: "Sandton",
+    employmentType: "PartTime",
+    salaryMin: 25000,
+    salaryMax: 40000,
+    // Posted 3 days ago
+    postedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+    isActive: true,
+    applicantCount: 4,
+  },
+  {
+    id: "f6a7b8c9-d0e1-2345-fabc-456789012345",
+    title: "Backend Engineer (.NET)",
+    company: "Vodacom",
+    location: "Remote",
+    employmentType: "FullTime",
+    salaryMin: 65000,
+    salaryMax: 90000,
+    
+    postedAt: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString(),
+
+    isActive: false,
+    applicantCount: 31,
+  },
+];
+
 
 export default function Home() {
+  
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  
+  const selectedJob = jobs.find((j) => j.id === selectedId) ?? null;
+
+  
+  function handleSelect(id: string) {
+    setSelectedId((prev) => (prev === id ? null : id));
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <main className="min-h-screen bg-gray-50">
+            <header className="bg-white border-b border-gray-200 px-8 py-5">
+        <h1 className="text-2xl font-bold text-gray-900">CareerHub</h1>
+        <p className="text-sm text-gray-500 mt-0.5">
+          Find your next opportunity
+        </p>
+      </header>
+
+      <div className="max-w-6xl mx-auto px-8 py-8">
+
+        {selectedJob !== null && (
+          <div className="mb-6 p-5 bg-blue-50 border border-blue-200 rounded-xl">
+            <p className="text-xs font-semibold text-blue-500 uppercase tracking-wider mb-1">
+              Selected Position
+            </p>
+            <h2 className="text-lg font-bold text-blue-900">
+              {selectedJob.title}
+            </h2>
+            <p className="text-sm text-blue-700 mt-0.5">
+              {selectedJob.company} · {selectedJob.location}
+            </p>
+            <p className="text-xs text-blue-500 mt-2">
+              Click the card again to deselect
+            </p>
+          </div>
+        )}
+
+        {}
+        <JobList
+          jobs={jobs}
+          selectedId={selectedId}
+          onSelect={handleSelect}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }
