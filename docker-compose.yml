@@ -1,0 +1,40 @@
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: CareerHub
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5433:5432"   # 5433 on the host to avoid clashing with a local Postgres install
+    volumes:
+      - careerhub_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d CareerHub"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── API ─────────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: >-
+        Host=postgres;Port=5432;Database=CareerHub;Username=postgres;Password=${POSTGRES_PASSWORD}
+      Jwt__SecretKey: ${JWT_SECRET_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy   # waits until pg_isready passes before starting the API
+    restart: on-failure
+
+# Named volume — survives "docker compose down".
+# Use "docker compose down -v" if you also want to wipe the database data.
+volumes:
+  careerhub_data:

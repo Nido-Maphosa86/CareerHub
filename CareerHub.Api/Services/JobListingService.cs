@@ -9,20 +9,18 @@ namespace CareerHub.Api.Services;
 
 public interface IJobListingService
 {
-    Task<PagedResponse<JobResponse>>          GetActiveListingsAsync(int page, int pageSize, JobListingFilterQuery filter, CancellationToken ct = default);
-    Task<PagedResponse<JobResponse>>          GetCompanyListingsAsync(Guid companyId, int page, int pageSize, CancellationToken ct = default);
-    Task<JobDetailResponse>                   GetByIdAsync(Guid id, CancellationToken ct = default);
-    Task<IEnumerable<JobResponse>>            SearchAsync(string searchTerm, CancellationToken ct = default);
+    Task<PagedResponse<JobResponse>>           GetActiveListingsAsync(int page, int pageSize, JobListingFilterQuery filter, CancellationToken ct = default);
+    Task<PagedResponse<JobResponse>>           GetCompanyListingsAsync(Guid companyId, int page, int pageSize, CancellationToken ct = default);
+    Task<JobDetailResponse>                    GetByIdAsync(Guid id, CancellationToken ct = default);
+    Task<IEnumerable<JobResponse>>             SearchAsync(string searchTerm, CancellationToken ct = default);
     Task<IEnumerable<JobListingStatsResponse>> GetApplicationStatsAsync(Guid companyId, CancellationToken ct = default);
-    Task<JobResponse>                         CreateAsync(CreateJobRequest request, CancellationToken ct = default);
-    Task<JobResponse>                         UpdateAsync(Guid id, UpdateJobRequest request, CancellationToken ct = default);
-    Task<JobResponse>                         PatchAsync(Guid id, UpdateJobListingRequest request, CancellationToken ct = default);
-    Task                                      CloseAsync(Guid id, CancellationToken ct = default);
+    Task<JobResponse>                          CreateAsync(CreateJobRequest request, CancellationToken ct = default);
+    Task<JobResponse>                          UpdateAsync(Guid id, UpdateJobRequest request, CancellationToken ct = default);
+    Task<JobResponse>                          PatchAsync(Guid id, UpdateJobListingRequest request, CancellationToken ct = default);
+    Task                                       CloseAsync(Guid id, CancellationToken ct = default);
 }
 
 // ── Implementation ───────────────────────────────────────────────────────────
-
-// No Microsoft.EntityFrameworkCore imports — all persistence in the repository.
 
 public class JobListingService(
     IJobListingRepository listingRepo,
@@ -52,11 +50,18 @@ public class JobListingService(
 
     public async Task<JobResponse> CreateAsync(CreateJobRequest request, CancellationToken ct = default)
     {
+        // Validate company exists
         if (!await companyRepo.ExistsAsync(request.CompanyId!.Value, ct))
             throw new CompanyNotFoundException(request.CompanyId.Value);
 
+        // Validate closing date is in the future
         if (request.ClosingDate!.Value <= DateTime.UtcNow)
             throw new InvalidListingException("Closing date must be in the future.");
+
+        // Validate salary range — SalaryMax must be greater than SalaryMin
+        if (request.SalaryMin.HasValue && request.SalaryMax.HasValue &&
+            request.SalaryMax.Value <= request.SalaryMin.Value)
+            throw new InvalidListingException("SalaryMax must be greater than SalaryMin.");
 
         var listing = new JobListing(
             Guid.NewGuid(), request.Title, request.Description,
@@ -99,12 +104,29 @@ public class JobListingService(
 
     public async Task<JobResponse> PatchAsync(Guid id, UpdateJobListingRequest request, CancellationToken ct = default)
     {
-        if (!await listingRepo.ExistsAsync(id, ct))
+        // Check listing exists
+        var existing = await listingRepo.GetEntityByIdAsync(id, ct);
+        if (existing is null)
             throw new JobNotFoundException(id);
 
-        var existing = await listingRepo.GetEntityByIdAsync(id, ct);
-        if (existing!.Status == JobListingStatus.Closed)
+        // Check listing is not closed
+        if (existing.Status == JobListingStatus.Closed)
             throw new ListingClosedException(id);
+
+        // Validate salary range if either salary field is included in the PATCH
+        if (request.SalaryMin is not null || request.SalaryMax is not null)
+        {
+            var effectiveMin = request.SalaryMin ?? existing.SalaryMin;
+            var effectiveMax = request.SalaryMax ?? existing.SalaryMax;
+
+            if (effectiveMin.HasValue && effectiveMax.HasValue &&
+                effectiveMax.Value <= effectiveMin.Value)
+                throw new InvalidListingException("SalaryMax must be greater than SalaryMin.");
+        }
+
+        // Validate closing date if included
+        if (request.ClosingDate is not null && request.ClosingDate.Value <= DateTime.UtcNow)
+            throw new InvalidListingException("Closing date must be in the future.");
 
         var result = await listingRepo.PatchAsync(id, request, ct);
         return result ?? throw new JobNotFoundException(id);
