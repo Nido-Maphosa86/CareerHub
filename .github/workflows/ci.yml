@@ -1,0 +1,53 @@
+# CareerHub CI Pipeline — Assignment 3.2 Part 6
+#
+# This workflow runs automatically:
+#   - on every push to main
+#   - on every pull request targeting main
+#
+# It runs on ubuntu-latest because Docker is pre-installed there,
+# which means the TestContainers repository tests work without
+# any extra configuration.
+#
+# The job name "Build and Test" is what appears in the GitHub
+# branch protection rules — when you require this status check,
+# no PR can merge until this job passes.
+
+name: CareerHub CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1 — download the repository code onto the runner
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2 — install the .NET 10 SDK on the runner
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # Step 3 — restore NuGet packages
+      - name: Restore dependencies
+        run: dotnet restore
+
+      # Step 4 — build in Release configuration.
+      # --no-restore skips restoring again — step 3 already did it.
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      # Step 5 — run ALL tests: unit, integration, and repository.
+      # --no- build skips building again — step 4 already did it.
+      # The TestContainers tests start a real PostgreSQL container
+      # using the Docker that is pre-installed on ubuntu-latest.
+      - name: Test
+        run: dotnet test --no-build --configuration Release --verbosity normal
