@@ -1,6 +1,7 @@
 using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using CareerHub.Api.Data;
@@ -22,6 +23,11 @@ public class AuthController(IConfiguration configuration) : ControllerBase
     ];
 
     [HttpPost("login")]
+    [EndpointSummary("Log in and receive a JWT")]
+    [EndpointDescription(
+        "Validates a username and password against the seeded demo users and returns a JWT bearer " +
+        "token valid for 8 hours. Use this token in the Authorization header as 'Bearer {token}' " +
+        "for any endpoint marked Authorize.")]
     public ActionResult<LoginResponse> Login([FromBody] LoginRequest request)
     {
         var user = _users.FirstOrDefault(u =>
@@ -53,6 +59,12 @@ public class AuthController(IConfiguration configuration) : ControllerBase
 
     [HttpGet("me")]
     [Authorize]
+    [EndpointSummary("Get the current authenticated user")]
+    [EndpointDescription(
+        "Returns the username and role of the currently authenticated user, " +
+        "read directly from the JWT claims. " +
+        "Use this to confirm a token is valid and to check which role the user has. " +
+        "Requires a valid Bearer token.")]
     public ActionResult GetCurrentUser()
     {
         var username = User.FindFirstValue(JwtRegisteredClaimNames.Sub);
