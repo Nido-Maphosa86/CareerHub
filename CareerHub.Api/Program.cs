@@ -3,14 +3,18 @@ using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Asp.Versioning;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
 using Serilog;
 using CareerHub.Api.Data;
 using CareerHub.Api.Infrastructure;
+using CareerHub.Api.Infrastructure.OpenApi;
 using CareerHub.Api.Middleware;
+using CareerHub.Api.Services;
 
 Log.Logger = new LoggerConfiguration().WriteTo.Console().CreateLogger();
 
@@ -31,9 +35,37 @@ try
         .AddJsonOptions(options =>
             options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
-    builder.Services.AddOpenApi();
+    // ── OPENAPI — Day 3 ──────────────────────────────────────────────────
+    // AddDocumentTransformer registers CareerHubDocumentTransformer, which
+    // fills in the title, description, contact info, and server list shown
+    // on the Scalar docs page.
+    builder.Services.AddOpenApi(options =>
+        options.AddDocumentTransformer<CareerHubDocumentTransformer>());
+
     builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
     builder.Services.AddProblemDetails();
+
+    // ── RESPONSE COMPRESSION — Day 3 ─────────────────────────────────────
+    // application/json is added explicitly because the default MIME type
+    // list used by ResponseCompressionDefaults does not include it, and
+    // almost every response this API returns is JSON.
+    // EnableForHttps is on because in production this API sits behind
+    // HTTPS, and without it compression is skipped for HTTPS responses
+    // by default (to avoid the BREACH attack surface on dynamic content
+    // that reflects request data — not a concern here, this is a JSON API).
+    builder.Services.AddResponseCompression(options =>
+    {
+        options.EnableForHttps = true;
+        options.Providers.Add<BrotliCompressionProvider>();
+        options.Providers.Add<GzipCompressionProvider>();
+        options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Append("application/json");
+    });
+
+    builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
+        options.Level = System.IO.Compression.CompressionLevel.Fastest);
+
+    builder.Services.Configure<GzipCompressionProviderOptions>(options =>
+        options.Level = System.IO.Compression.CompressionLevel.Fastest);
 
     // ── CORS — Part 2 ─────────────────────────────────────────────────────
     // AllowAnyOrigin() combined with AllowCredentials() causes a startup exception:
@@ -132,6 +164,16 @@ try
         options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"))
                .AddInterceptors(serviceProvider.GetRequiredService<SlowQueryInterceptor>()));
 
+    // ── HEALTH CHECKS — Day 3 ───────────────────────────────────────────────
+    // AddDbContextCheck comes from the Microsoft.Extensions.Diagnostics.HealthChecks.
+    // EntityFrameworkCore package. It runs a trivial query against CareerHubDbContext
+    // to confirm the database is actually reachable, not just that the app is running.
+    // Tagged "ready" so the readiness endpoint below can pick it out specifically.
+    builder.Services.AddHealthChecks()
+        .AddDbContextCheck<CareerHubDbContext>(
+            name: "database",
+            tags: ["ready"]);
+
     var jwtSecretKey = builder.Configuration["Jwt:SecretKey"]!;
     builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         .AddJwtBearer(options =>
@@ -154,10 +196,19 @@ try
         .AddCompanyFeature()
         .AddApplicationFeature();
 
+    // ── BACKGROUND SERVICE — Day 4 ──────────────────────────────────────────
+    // Runs at startup and then every 24 hours, closing job listings whose
+    // ClosingDate has passed. See Services/JobListingExpiryService.cs.
+    builder.Services.AddHostedService<JobListingExpiryService>();
+
     var app = builder.Build();
 
     // ── MIDDLEWARE PIPELINE ────────────────────────────────────────────────
-    // Order matters. CORS before auth. Rate limiter after CORS but before auth.
+    // Order matters. Response compression goes first so every response below
+    // it in the pipeline gets compressed before it reaches the client.
+    // CORS before auth. Rate limiter after CORS but before auth.
+
+    app.UseResponseCompression();
 
     app.UseSerilogRequestLogging();
     app.UseCors("FrontEndPolicy");
@@ -176,6 +227,26 @@ try
         app.MapScalarApiReference();
     }
 
+    // ── HEALTH CHECK ENDPOINTS — Day 3 ──────────────────────────────────────
+    // /health/live — "is the process running and able to respond at all?"
+    // Predicate = _ => false means no individual checks run here, so a slow
+    // or unreachable database does not make liveness fail. An orchestrator
+    // (Docker, Kubernetes) uses this to decide whether to restart the container.
+    app.MapHealthChecks("/health/live", new HealthCheckOptions
+    {
+        Predicate = _ => false
+    });
+
+    // /health/ready — "is the app ready to actually serve real traffic?"
+    // Runs every check tagged "ready" (currently just the database check).
+    // A load balancer uses this to decide whether to send traffic to this
+    // instance — if the database is down, this returns Unhealthy and traffic
+    // is routed elsewhere instead of to an instance that can't serve requests.
+    app.MapHealthChecks("/health/ready", new HealthCheckOptions
+    {
+        Predicate = check => check.Tags.Contains("ready")
+    });
+
     // Apply global rate limit to all controller endpoints
     app.MapControllers().RequireRateLimiting("global");
 
@@ -189,3 +260,5 @@ finally
 {
     Log.CloseAndFlush();
 }
+
+public partial class Program { }
