@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+/* Tailwind v4 — enable class-based dark mode.
+   Without this, the "dark:" utilities never activate. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Page background and base text colours. */
+html,
+body {
+  background-color: #f8fafc; /* slate-50 */
+  color: #0f172a; /* slate-900 */
+}
+
+html.dark,
+html.dark body {
+  background-color: #0f172a; /* slate-900 */
+  color: #f1f5f9; /* slate-100 */
+}
