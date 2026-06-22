@@ -77,7 +77,7 @@ export default function Home() {
             selectedId={selectedId}
             onSelect={handleSelect}
           />
-        )}
+        )}= 
       </div>
     </main>
   );

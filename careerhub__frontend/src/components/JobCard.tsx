@@ -15,16 +15,17 @@ interface Props {
 }
 
 export function JobCard({ job, isSelected, onSelect }: Props) {
+  // Trim the ISO timestamp down to just the date portion (YYYY-MM-DD).
+  const postedDate = job.postedAt.split("T")[0];
+
   return (
     <button
       type="button"
       onClick={() => onSelect(job.id)}
       className={cn(
-        // Base card styles — work in both light and dark mode.
         "w-full text-left rounded-lg border p-4 transition-all",
         "bg-white border-slate-200 hover:border-slate-400",
         "dark:bg-slate-900 dark:border-slate-700 dark:hover:border-slate-500",
-        // Selected state — coloured ring around the card.
         isSelected && "ring-2 ring-emerald-500 border-emerald-500"
       )}
     >
@@ -34,10 +35,10 @@ export function JobCard({ job, isSelected, onSelect }: Props) {
             {job.title}
           </h3>
           <p className="text-sm text-slate-600 dark:text-slate-400">
-            {job.company} &middot; {job.location}
+            {job.companyName} &middot; {job.location}
           </p>
         </div>
-        <JobStatusBadge type={job.employmentType} />
+        <JobStatusBadge type={job.type} />
       </div>
 
       <p className="mt-3 text-sm text-slate-700 dark:text-slate-300">
@@ -45,8 +46,8 @@ export function JobCard({ job, isSelected, onSelect }: Props) {
       </p>
 
       <div className="mt-3 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-        <span>{job.salary}</span>
-        <span>Posted {job.postedAt}</span>
+        <span>{job.salaryDisplay}</span>
+        <span>Posted {postedDate}</span>
       </div>
     </button>
   );
