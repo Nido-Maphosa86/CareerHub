@@ -1,303 +1,178 @@
-# CareerHub Frontend — Assignment 1.2
+# CareerHub Frontend
 
-## What this assignment covers
+A Next.js 15 frontend for the CareerHub job board API. Built with TypeScript, Tailwind CSS v4, and TanStack Query.
 
-This assignment adds four important features to improve the app:
+## Assignment progress
 
-* **shadcn/ui** → gives reusable and consistent UI components that you own
-* **cn utility** → helps combine Tailwind classes correctly without conflicts
-* **useEffect with sessionStorage** → keeps the selected job even after refreshing the page
-* **Class-based dark mode** → lets the whole app switch between light and dark mode with one button
+This frontend is built across multiple assignments. Each one adds a layer on top of the previous.
 
-These changes make the app more stable, easier to manage, and better for users.
+### Assignment 1.1 — Project setup and types
 
----
+Set up a Next.js 15 project with the App Router, TypeScript, and Tailwind v4. Defined the shared `JobListing` interface and `EmploymentType` union in `src/types/index.ts`. Built a basic page that rendered a hardcoded array of jobs as plain cards.
 
-## File structure (simple explanation)
+### Assignment 1.2 — Components, badges, theme, selection
 
-The project is organised into folders so each part has a clear role:
+Built the visual layer.
 
-* **app/** → handles layout and main pages
-* **components/** → reusable UI parts like JobCard and JobList
-* **lib/** → helper functions like cn
-* **types/** → TypeScript definitions
+- `cn` utility in `src/lib/utils.ts` (combines `clsx` and `tailwind-merge`)
+- shadcn-style `Badge` component in `src/components/ui/badge.tsx` with six custom CareerHub variants for each employment type
+- `JobStatusBadge` that maps an `EmploymentType` to a badge variant using a typed `Record`
+- `JobCard` and `JobList` components
+- `ThemeToggle` that reads `localStorage` first, then falls back to the OS preference
+- Dark mode wired up via the `@custom-variant dark` directive in `globals.css`
+- Card selection persisted to `sessionStorage` using two separate `useEffect` calls — one to restore on mount, one to persist when the selection changes
 
-Each file has one clear responsibility, which makes the project easier to maintain.
+### Assignment 1.3 — Data fetching with TanStack Query
 
----
+# Part 1 — Written Decisions
 
-## Part 1 — Written Decisions
+## 1. Server state vs client state
 
-### 1. The shadcn/ui ownership model
+A manual `useEffect + useState + fetch` setup may look like it does the same job as `useQuery`, but it only handles the simplest case: fetching data once and showing it. TanStack Query handles many real-world situations that happen when users interact with the app. Here are four important things it gives you automatically.
 
-With libraries like **MUI**, components are stored in *node_modules*.
-If the library updates and changes something (for example renaming a prop), your app can break automatically.
+**Caching across components and pages.** TanStack Query saves data using a `queryKey` and shares it with any component that uses the same key. For example, if a user goes from the job list page to a job details page and then back, the job list shows immediately from cache while it quietly checks for updates in the background. With manual `useEffect`, every time the component loads, it sends a new request. The result is that the page keeps showing loading screens again and again, even when data has not changed. This makes the app feel slow and annoying.
 
-With **shadcn/ui**, it works differently:
+**Request deduplication.** If two components on the same page request `["jobs"]`, TanStack Query sends only one request and shares the result. With a manual setup, two identical requests are sent at the same time. This wastes data, slows down the page (especially on mobile), and puts extra load on the server.
 
-* Components are copied into your project
-* You fully **own the code**
-* Updates only happen when **you choose to update**
+**Automatic refetch on window focus and network reconnect.** If a user leaves the tab and comes back later, TanStack Query checks if the data is still fresh and updates it in the background if needed. The old data stays visible during this process. With manual `useEffect`, the data never updates unless the page is refreshed. This means users might see outdated information, like a job that is already closed still showing as open.
 
-This gives you full control and avoids unexpected errors.
+**Built-in loading, error, and success state.** `useQuery` gives you `isPending`, `isError`, `error`, and `data`, and they always stay consistent. A manual setup needs multiple `useState` variables and a `try / catch / finally` block, and it is easy to make mistakes. For example, you might forget to stop loading when an error happens. This can cause issues like a spinner that never stops or an error message that stays even after success.
 
----
+## 2. The queryKey contract
 
-### 2. Why cn exists
+TanStack Query uses the `queryKey` as the **unique ID for a piece of server data in the cache**. Every query is saved under its key, and all actions (read, update, refetch, delete) use this key. It also decides if two `useQuery` calls are the same or different based on the key. Same key = shared data and request. Different key = separate queries.
 
-Using Tailwind classes with normal strings can cause problems.
+**Failure mode A — two components share a key they should not share.**
+Example: A `JobList` page uses `["jobs"]` to fetch all jobs, and a `MyApplications` page also uses `["jobs"]` but fetches only applied jobs. The keys are the same, but the data is different. TanStack Query treats them as the same, so one result overwrites the other. The user may see wrong data depending on which page was opened first. The fix is to use clear keys like `["jobs", "all"]` and `["jobs", "applied", userId]`.
 
-Example:
-"border-gray-200 border-blue-500"
+**Failure mode B — a component uses a unique key when it should share one.**
+Example: A navbar shows job count using `["jobsCount"]`, while the main page uses `["jobs"]`, but both call the same API. TanStack Query treats them as different and sends two requests. The user may briefly see different numbers in different parts of the app. The fix is to use the same key so they share data.
 
-Both classes control the same thing (border color).
-The browser may choose the wrong one depending on CSS order.
+## 3. Why fetch does not throw on HTTP errors
 
-**cn solves this problem:**
+The `fetch` API treats HTTP errors (like 404, 500) as **successful responses that contain errors**. From its view, the request worked because the server responded. It only fails if the request never reaches the server (like no internet, DNS issues, or blocked requests).
 
-* **clsx** → handles conditions (like if something is selected)
-* **tailwind-merge** → removes conflicting classes
+That is why we check `res.ok` (true for status 200–299) and throw an error manually when it is false.
 
-So the final result is always correct and predictable.
+If we remove the `res.ok` check, this happens:
+If the API returns a 500 error with `{ "error": "Database connection failed" }`, `fetch` still succeeds. The JSON is read correctly, and that error object is returned as data. TanStack Query thinks it is valid data, so `isError` stays false and the error is not handled properly.
 
----
+The result for the user is bad:
 
-### 3. Event handler vs useEffect for sessionStorage
+* The app may crash (e.g., trying to use `.map` on an object)
+* Or it may show empty results with no error message
 
-An **event handler** only works when a user clicks.
+The error UI will never show because no error was thrown. That is why checking `!res.ok` is very important.
 
-Problem:
+## 4. Stale-while-revalidate
 
-* When the page reloads, no click happens
-* The saved job in sessionStorage is never used
+With TanStack Query’s default `staleTime` (0), when a user returns to the tab, the app marks data as stale and fetches new data in the background — **but keeps the old data visible the whole time**. There is no loading screen or flicker. When new data arrives, it updates smoothly. If nothing changed, the user sees no difference.
 
-**useEffect fixes this:**
+This is called "stale-while-revalidate": show old data immediately, update it in the background, then replace it when ready. The user always sees something useful.
 
-* Runs automatically when the component loads
-* Reads sessionStorage
-* Restores the selected job
+With a normal `useEffect(..., [])`, data loads only once when the component starts. Returning to the tab does nothing, so the user may see outdated data. If the user leaves and comes back (causing reload), the app fetches again but resets data first, showing loading screens again.
 
-That’s why useEffect is necessary for this feature.
+So the user either sees outdated data or constant reloading, with no smooth experience. TanStack Query solves this by giving a balanced and better experience.
 
----
 
-### 4. Source of truth for dark mode
 
-Dark mode is controlled by this:
 
-document.documentElement.classList
 
-If the **"dark" class** exists → dark mode is active.
+Replaced the hardcoded array with a real data-fetching layer.
 
-Important:
+**What was added:**
 
-* React state (**isDark**) is only used for button text
-* The actual styling depends on the **HTML class**, not React
+1. **TanStack Query installed** — `@tanstack/react-query` plus `@tanstack/react-query-devtools` for development.
 
-Even if the component reloads, dark mode stays because the class is still there.
+2. **Environment variable** — `.env.local` with `NEXT_PUBLIC_API_URL` so the API base URL is configurable. Today it points at the mock route handler. When the real CareerHub backend is ready, only this one line changes.
 
----
+3. **Mock backend route handler** — `src/app/api/jobs/route.ts` is a Next.js Route Handler that returns seed `JobListing` data as JSON at `GET /api/jobs`. This lets the frontend be built before the real backend is wired in.
 
-## Part 2 — shadcn/ui setup
+4. **`fetchJobs` function** — `src/lib/api.ts` is the single bridge between the frontend and the backend. It builds the URL from the env var, checks `res.ok` explicitly, and throws on non-2xx responses so TanStack Query catches the error.
 
-After setting up shadcn/ui, you get:
+5. **`Providers` component** — `src/app/providers.tsx` creates a `QueryClient` via `useState` initialiser so each browser session gets its own cache. This avoids one user's cache leaking into another user's session. The `Providers` component is a Client Component because TanStack Query relies on React Context and browser state.
 
-1. **components.json** → configuration file
-2. **utils.ts** → contains the cn function
-3. **badge.tsx** → Badge component code
+6. **Root layout wraps in Providers** — `src/app/layout.tsx` stays a Server Component but renders `<Providers>` around `children`. Only the providers subtree becomes client-rendered.
 
-The Badge uses **cva (class-variance-authority)**:
+7. **`JobCardSkeleton` and `JobListSkeleton`** — `src/components/JobCardSkeleton.tsx` mirrors the real `JobCard` layout so when the skeleton is replaced by the real card, the layout does not jump.
 
-* Maps different variants (like colors) to class names
-* Makes styling reusable and structured
+8. **`useQuery` in `page.tsx`** — `src/app/page.tsx` replaced the hardcoded array with a `useQuery({ queryKey: ["jobs"], queryFn: fetchJobs })` call. The page now renders one of three branches:
+   - `isPending` — show `JobListSkeleton`
+   - `isError` — show a red error box with the error message
+   - `data` (renamed to `jobs`) — render the real `JobList`
 
----
+9. **Components untouched from 1.2** — `JobCard`, `JobList`, `JobStatusBadge`, `ThemeToggle`, `badge`, `utils`, and `globals.css` did not change in 1.3. Only the data source changed. This proves the components were built with a clean separation between data and presentation.
 
-## Part 3 — JobStatusBadge
-
-This component only handles:
-
-* Job type (FullTime, PartTime, etc.)
-* Status (Active or Closed)
-
-Why separate it?
-
-* Keeps code clean
-* Makes updates easier
-
-Example:
-If you change the color for "Contract", you only update it in one place.
-
-TypeScript ensures:
-
-* Every job type must have a style
-* If one is missing → build fails immediately
-
----
-
-## Part 4 — Tailwind design improvements
-
-Changes made:
-
-* Replaced template strings with **cn** for safer styling
-* Added dark mode styles to all colors
-
-Examples:
-
-* text-gray-900 → dark:text-gray-100
-* bg-white → dark:bg-gray-800
-* border-gray-200 → dark:border-gray-700
-
-Closed jobs are easier to see:
-
-* Lower opacity (faded look)
-* Italic title
-
-This improves user experience when scanning job listings.
-
----
-
-## Part 5 — sessionStorage persistence
-
-Two separate useEffect hooks are used:
-
-### Effect 1 ([])
-
-* Runs once when the page loads
-* Reads sessionStorage
-* Restores the selected job
-
-### Effect 2 ([selectedId])
-
-* Runs when the selected job changes
-* Saves the job ID
-* Removes it if nothing is selected
-
-Why separate them?
-If combined:
-
-* The stored value would be deleted before being read
-* The selection would never be restored
-
----
-
-## Part 6 — Dark mode toggle
-
-When the app loads, it checks:
-
-1. **localStorage** → user’s saved preference
-2. **OS settings** → system dark mode
-3. Default → light mode
-
-When toggling:
-
-* Saves the choice in localStorage
-* Adds/removes "dark" class
-
-The button label shows the **action** (e.g. "Switch to dark mode"), not the current state.
-
----
-
-
-## Component responsibility table
-
-| Component | Owns state | Receives via props |
-|---|---|---|
-| Home | selectedId: string or null | nothing |
-| JobList | nothing | jobs, selectedId, onSelect |
-| JobCard | nothing | job, isSelected, onSelect |
-| JobStatusBadge | nothing | employmentType, isActive |
-| ThemeToggle | isDark: boolean (label only) | nothing |
-
----
-
-## Effect table
-
-| Effect | Dependency array | Runs when | Purpose |
-|---|---|---|---|
-| Restore | [] | Once on mount | Reads sessionStorage and restores selected job if ID is still valid |
-| Persist | [selectedId] | Every selectedId change | Writes or removes the session key |
-| Merged (wrong) | [selectedId] | Mount and every change | Immediately clears the key on mount before restore can read it |
-
----
-
-## How to run
+## How to run it
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open http://localhost:3000 in your browser.
+Open http://localhost:3000.
 
----
+## How to verify Assignment 1.3 works
 
-## How to test
+1. **Mock backend on its own** — Open http://localhost:3000/api/jobs. You should see raw JSON, an array of six jobs.
 
-### Test 1 — shadcn/ui Badge is owned not installed
+2. **Success branch** — Refresh http://localhost:3000. A skeleton flashes briefly, then real cards appear with coloured badges.
 
-Open src/components/ui/badge.tsx. Confirm the file exists in your source code
-and not in node_modules. Open node_modules and confirm there is no shadcn folder.
-This proves shadcn/ui copies source rather than installing a package.
+3. **Loading branch** — Open DevTools, Network tab, set throttling to Slow 3G, refresh. The skeleton stays visible for a few seconds.
 
-### Test 2 — Employment type badges render with distinct colours
+4. **Error branch** — Temporarily change `fetchJobs` to call `/jobsXXX` instead of `/jobs`. Refresh. A red error box should appear. Change it back when done.
 
-Look at the job listing grid. Each card should show a coloured badge. Confirm
-that FullTime shows blue, PartTime shows purple, Contract shows orange, and
-Internship shows teal. The Vodacom listing is Closed — it should show both a
-FullTime badge and a red Closed badge side by side.
+5. **TanStack Query DevTools** — Look for the small floating icon at the bottom-left of the page. Click it to see the `["jobs"]` query in the cache, its status, and the cached data.
 
-### Test 3 — Active listings show no Closed badge
+6. **Selection persists (from 1.2)** — Click a card to select it, refresh, same card stays selected.
 
-Inspect any active listing in the browser Elements panel. Confirm there is no
-hidden or invisible element where the Closed badge would be. The element must
-not exist in the DOM at all — not display: none, not empty, completely absent.
+7. **Dark mode works (from 1.2)** — Click the moon icon, the whole page switches. Refresh, the theme persists.
 
-### Test 4 — applicantCount of 0 renders nothing
+## Project structure
 
-The FNB React Developer listing has applicantCount: 0. Open that card. Confirm
-the number 0 does not appear anywhere in the card. Inspect the element — no
-paragraph element for the applicant count should exist in the DOM.
+```
+careerhub__frontend/
+├── src/
+│   ├── app/
+│   │   ├── api/jobs/route.ts    Mock backend — GET /api/jobs
+│   │   ├── globals.css          Tailwind v4 + dark mode
+│   │   ├── layout.tsx           Root layout, Server Component
+│   │   ├── page.tsx             Main page with useQuery
+│   │   └── providers.tsx        QueryClient setup, Client Component
+│   ├── components/
+│   │   ├── ui/badge.tsx         shadcn-style Badge with CareerHub variants
+│   │   ├── JobCard.tsx
+│   │   ├── JobCardSkeleton.tsx  Loading state (1.3)
+│   │   ├── JobList.tsx
+│   │   ├── JobStatusBadge.tsx
+│   │   └── ThemeToggle.tsx
+│   ├── lib/
+│   │   ├── api.ts               fetchJobs (1.3)
+│   │   └── utils.ts             cn helper
+│   └── types/index.ts           JobListing, EmploymentType
+├── .env.local                   NEXT_PUBLIC_API_URL
+├── next.config.ts
+├── package.json
+├── postcss.config.mjs
+└── tsconfig.json
+```
 
-### Test 5 — cn replaces all template literals
+## Environment
 
-Open src/components/JobCard.tsx and src/components/JobList.tsx. Use Ctrl+F to
-search for the backtick character. Zero results must appear in both files — no
-template literals remain anywhere in either file.
+`.env.local` controls which backend the frontend talks to.
 
-### Test 6 — sessionStorage persistence
+```
+NEXT_PUBLIC_API_URL=http://localhost:3000/api
+```
 
-Click any job card. The summary panel appears at the top. Refresh the page with
-F5. The same job should still be selected and the summary panel should reappear.
-Open DevTools, go to Application, then Session Storage, then localhost:3000.
-Confirm the careerhub-selected-job key is present with the correct ID. Click the
-same card again to deselect. Refresh. No job is selected and no summary panel
-appears. Check Session Storage again — the key must be gone.
+The default points at the built-in mock route handler at `/api/jobs`. When the real CareerHub .NET API is connected in a later assignment, change this URL to point at that instead — no other code changes are needed.
 
-### Test 7 — Dark mode toggle
+## Tech stack
 
-Click the dark mode button in the header. Every surface should switch — header,
-page background, cards, badges, summary panel. Refresh the page. Dark mode should
-still be active. Open a new tab to http://localhost:3000 — dark mode is active.
-Open DevTools, go to Application, then Local Storage. Confirm careerhub-theme
-is set to "dark". Clear Local Storage, then refresh. The app should use your OS
-dark mode preference on the next load.
-
-### Test 8 — Selected card visual state in both modes
-
-Select a job in light mode. The selected card should have a blue border and ring.
-Toggle to dark mode. The selected card should still be visually distinct with an
-adapted border and ring colour. The unselected cards should look different from
-the selected one in both modes.
-
-### Test 9 — Closed listing visual state
-
-Find the Vodacom Backend Engineer listing — it has isActive: false. Confirm it
-shows the Closed badge. Confirm the card appears visually different from active
-listings — it should be slightly faded (opacity) with an italic title. Toggle dark
-mode and confirm the closed state is still clearly visible in dark mode.
-
-### Test 10 — Build passes with zero errors
-
-```bash
-npm run build
+- Next.js 15 (App Router)
+- React 19
+- TypeScript
+- Tailwind CSS v4
+- TanStack Query 5
+- shadcn-style components with `class-variance-authority`
+- Lucide icons

@@ -1,72 +1,60 @@
 // src/components/ThemeToggle.tsx
-//
-// Manages dark mode by toggling the "dark" class on <html>.
-// The real source of truth is the CSS class on <html>.
-// React state (isDark) is just a mirror to show the correct button label.
-// Even if the component unmounts, the <html> class stays, so dark mode persists.
+// Toggles between light and dark mode by adding/removing the "dark" class
+// on <html>. Reads localStorage first, then falls back to OS preference.
 
-"use client"; // Must be here so React hooks work in Next.js
+"use client";
 
-// Import React hooks
 import { useEffect, useState } from "react";
+import { Sun, Moon } from "lucide-react";
 
-// ThemeToggle component
+type Theme = "light" | "dark";
+
 export function ThemeToggle() {
-  // State: isDark → only used for button label
-  const [isDark, setIsDark] = useState(false);
+  // Start as null so we can tell "not loaded yet" apart from a real value.
+  // This avoids a flash of the wrong icon on first render.
+  const [theme, setTheme] = useState<Theme | null>(null);
 
-  // On first mount: check localStorage or OS preference
-  // Runs once because dependency array is []
+  // On mount, decide what theme to use.
   useEffect(() => {
-    const stored = localStorage.getItem("careerhub-theme");
+    // 1. Check localStorage for a saved choice.
+    const saved = localStorage.getItem("theme") as Theme | null;
 
-    if (stored === "dark") {
-      // If user saved "dark", add dark class to <html>
-      document.documentElement.classList.add("dark");
-      setIsDark(true);
-    } else if (stored === "light") {
-      // If user saved "light", remove dark class
-      document.documentElement.classList.remove("dark");
-      setIsDark(false);
-    } else {
-      // No saved preference → check OS setting
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      if (prefersDark) {
-        document.documentElement.classList.add("dark");
-        setIsDark(true);
-      }
-    }
+    // 2. Fall back to the OS preference.
+    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+
+    const initial: Theme = saved ?? (prefersDark ? "dark" : "light");
+    setTheme(initial);
+    applyTheme(initial);
   }, []);
 
-  // Toggle function → flips dark mode on/off
-  function toggle() {
-    const next = !isDark; // opposite of current state
-    setIsDark(next);
+  // Add or remove the "dark" class on the <html> element.
+  // Tailwind reads this class to switch dark mode styles on/off.
+  function applyTheme(next: Theme) {
+    const root = document.documentElement;
+    if (next === "dark") root.classList.add("dark");
+    else root.classList.remove("dark");
+  }
 
-    if (next) {
-      // Turn dark mode on
-      document.documentElement.classList.add("dark");
-      localStorage.setItem("careerhub-theme", "dark");
-    } else {
-      // Turn dark mode off
-      document.documentElement.classList.remove("dark");
-      localStorage.setItem("careerhub-theme", "light");
-    }
+  function toggle() {
+    const next: Theme = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    applyTheme(next);
+    localStorage.setItem("theme", next);
+  }
+
+  // Don't render the icon until we know the real theme.
+  if (theme === null) {
+    return <div className="h-9 w-9" aria-hidden />;
   }
 
   return (
-    // Button that toggles dark mode
     <button
+      type="button"
       onClick={toggle}
-      // aria-label describes the action (what will happen when clicked)
-      aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
-      // Button styling → cn() not needed here, but dark mode variants added
-      className="text-sm px-3 py-1.5 rounded-lg border transition-colors
-        border-gray-300 text-gray-600 hover:bg-gray-100
-        dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+      aria-label="Toggle dark mode"
+      className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 transition-colors hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
     >
-      {/* Button text changes depending on state */}
-      {isDark ? "☀ Light" : "☾ Dark"}
+      {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
     </button>
   );
 }
