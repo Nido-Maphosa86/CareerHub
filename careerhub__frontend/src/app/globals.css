@@ -1,18 +1,49 @@
 @import "tailwindcss";
 
-/* Tailwind v4 — enable class-based dark mode.
-   Without this, the "dark:" utilities never activate. */
+/* Tailwind v4 — class-based dark mode. */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Page background and base text colours. */
-html,
-body {
-  background-color: #f8fafc; /* slate-50 */
-  color: #0f172a; /* slate-900 */
+/* Tell Tailwind exactly where to scan for class names. */
+@source "../**/*.{js,ts,jsx,tsx}";
+
+/* ---- Design tokens ---------------------------------------------------- */
+/* Lime accent + near-black surfaces. Light mode keeps the lime accent on
+   a clean off-white. These are referenced in components via Tailwind's
+   zinc/lime scales, but the page-level chrome is set here. */
+
+:root {
+  --bg: #fafaf9;        /* light page background (stone-50) */
+  --fg: #18181b;        /* light text (zinc-900) */
+  --grid: #e7e5e4;      /* faint grid line for light mode */
 }
 
-html.dark,
-html.dark body {
-  background-color: #0f172a; /* slate-900 */
-  color: #f1f5f9; /* slate-100 */
+.dark {
+  --bg: #0a0a0a;        /* near-black page background */
+  --fg: #fafafa;        /* light text on dark */
+  --grid: #1a1a1a;      /* faint grid line for dark mode */
+}
+
+html,
+body {
+  background-color: var(--bg);
+  color: var(--fg);
+}
+
+/* Subtle dotted-grid texture behind everything — quiet, not loud. */
+body {
+  background-image: radial-gradient(var(--grid) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+/* Smooth the lime focus ring everywhere for keyboard users. */
+*:focus-visible {
+  outline: 2px solid #a3e635; /* lime-400 */
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
