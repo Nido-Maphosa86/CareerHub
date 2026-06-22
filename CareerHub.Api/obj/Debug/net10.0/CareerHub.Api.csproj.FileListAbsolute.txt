@@ -322,3 +322,4 @@ D:\BitCube\CareeerHub\CareerHub\CareerHub.Api\obj\Debug\net10.0\swae.build.ex.ca
 D:\BitCube\CareeerHub\CareerHub\CareerHub.Api\obj\Debug\net10.0\CareerHu.02FEED06.Up2Date
 D:\BitCube\CareeerHub\CareerHub\CareerHub.Api\obj\Debug\net10.0\CareerHub.Api.genruntimeconfig.cache
 D:\BitCube\CareeerHub\CareerHub\CareerHub.Api\obj\Debug\net10.0\ref\CareerHub.Api.dll
+C:\Users\TrainingCenter 1\Desktop\git\CareerHub\CareerHub.Api\bin\Debug\net10.0\Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore.dll
