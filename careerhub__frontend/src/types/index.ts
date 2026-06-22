@@ -1,9 +1,6 @@
 // src/types/index.ts
-// All shared TypeScript types live here.
+// Matches the CareerHub .NET API response shape.
 
-// The kinds of employment a job listing can be.
-// Used to colour-code the JobStatusBadge.
-//restricts jobs to only these values
 // Values match the backend's JobType enum (serialized as PascalCase strings).
 export type EmploymentType =
   | "FullTime"
@@ -13,8 +10,6 @@ export type EmploymentType =
   | "Freelance"
   | "Temporary";
 
-// A single job listing returned by the API (and rendered as a JobCard).
-//defines what should each job listing look like and what properties it should have
 // One job as returned by GET /api/v1/Jobs (inside the paginated wrapper).
 export interface JobListing {
   id: string; // GUID
@@ -25,7 +20,7 @@ export interface JobListing {
   type: EmploymentType;
   salaryMin: number;
   salaryMax: number;
-  salaryDisplay: string; // pre-formatted by the backend
+  salaryDisplay: string; // pre-formatted by the backend, e.g. "R30,000 – R40,000/month"
   postedAt: string; // ISO timestamp
   isActive: boolean;
   applicationCount: number;

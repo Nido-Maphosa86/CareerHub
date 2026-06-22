@@ -1,12 +1,9 @@
 // src/components/JobStatusBadge.tsx
-// Picks the right badge colour for a given employment type.
-// src/components/JobStatusBadge.tsx
-// Picks the right badge colour for a given employment type.
+// Picks the right badge colour and label for a given employment type.
 
 import { Badge } from "@/components/ui/badge";
 import { EmploymentType } from "@/types";
 
-// Map each EmploymentType to the matching badge variant.
 type BadgeVariant =
   | "fulltime"
   | "parttime"
@@ -15,13 +12,14 @@ type BadgeVariant =
   | "freelance"
   | "closed";
 
+// Map each EmploymentType (PascalCase from the backend) to a badge variant.
 const variantMap: Record<EmploymentType, BadgeVariant> = {
   FullTime: "fulltime",
   PartTime: "parttime",
   Contract: "contract",
   Internship: "internship",
   Freelance: "freelance",
-  Temporary: "contract", // reuse contract styling for temporary
+  Temporary: "contract", // reuse the contract styling for temporary roles
 };
 
 // Human-friendly label for each type.

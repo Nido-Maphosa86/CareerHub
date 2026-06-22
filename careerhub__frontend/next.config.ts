@@ -1,7 +1,5 @@
 import type { NextConfig } from "next";
 
-const nextConfig: NextConfig = {
-  // Add any custom Next.js config here
-};
+const nextConfig: NextConfig = {};
 
 export default nextConfig;

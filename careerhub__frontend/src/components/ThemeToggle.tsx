@@ -1,6 +1,6 @@
 // src/components/ThemeToggle.tsx
-// Toggles between light and dark mode by adding/removing the "dark" class
-// on <html>. Reads localStorage first, then falls back to OS preference.
+// Toggles light/dark by adding/removing the "dark" class on <html>.
+// Defaults to dark so the lime-on-black look is the first impression.
 
 "use client";
 
@@ -10,25 +10,16 @@ import { Sun, Moon } from "lucide-react";
 type Theme = "light" | "dark";
 
 export function ThemeToggle() {
-  // Start as null so we can tell "not loaded yet" apart from a real value.
-  // This avoids a flash of the wrong icon on first render.
   const [theme, setTheme] = useState<Theme | null>(null);
 
-  // On mount, decide what theme to use.
   useEffect(() => {
-    // 1. Check localStorage for a saved choice.
     const saved = localStorage.getItem("theme") as Theme | null;
-
-    // 2. Fall back to the OS preference.
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-
-    const initial: Theme = saved ?? (prefersDark ? "dark" : "light");
+    // Default to dark when there's no saved choice — the brand is dark + lime.
+    const initial: Theme = saved ?? "dark";
     setTheme(initial);
     applyTheme(initial);
   }, []);
 
-  // Add or remove the "dark" class on the <html> element.
-  // Tailwind reads this class to switch dark mode styles on/off.
   function applyTheme(next: Theme) {
     const root = document.documentElement;
     if (next === "dark") root.classList.add("dark");
@@ -42,9 +33,8 @@ export function ThemeToggle() {
     localStorage.setItem("theme", next);
   }
 
-  // Don't render the icon until we know the real theme.
   if (theme === null) {
-    return <div className="h-9 w-9" aria-hidden />;
+    return <div className="h-10 w-10" aria-hidden />;
   }
 
   return (
@@ -52,9 +42,13 @@ export function ThemeToggle() {
       type="button"
       onClick={toggle}
       aria-label="Toggle dark mode"
-      className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 transition-colors hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+      className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-700 transition-colors hover:border-lime-400 hover:text-lime-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 dark:hover:border-lime-400/50 dark:hover:text-lime-400"
     >
-      {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+      {theme === "dark" ? (
+        <Sun className="h-4 w-4" />
+      ) : (
+        <Moon className="h-4 w-4" />
+      )}
     </button>
   );
 }

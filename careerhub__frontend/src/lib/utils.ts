@@ -1,5 +1,5 @@
 // src/lib/utils.ts
-// Small utility for merging Tailwind class names safely.
+// Merges Tailwind class names safely.
 // clsx joins them, tailwind-merge resolves conflicts (e.g. "p-2 p-4" -> "p-4").
 
 import { clsx, type ClassValue } from "clsx";
