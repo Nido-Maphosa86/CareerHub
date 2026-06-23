@@ -15,8 +15,10 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { CheckCircle2, AlertCircle } from "lucide-react";
 
+//rules defines what the application should look like
 // ---- Schema -----------------------------------------------------------
 
+//This defines the Zod schema — the rules for what valid input looks like.
 const applicationSchema = z
   .object({
     fullName: z
@@ -64,14 +66,27 @@ const applicationSchema = z
       path: ["noticePeriodWeeks"],
     }
   );
+   //refine() adds a custom rule across multiple fields.
+// Rule: If availableImmediately is false, noticePeriodWeeks must be > 0.
+// Error message is attached to noticePeriodWeeks field.
+// This matches Assignment 1.4’s cross-field requirement.
+
 
 type ApplicationFormData = z.infer<typeof applicationSchema>;
+// 👉 ApplicationFormData is automatically generated from the schema.
+// 👉 Ensures the form data matches the schema exactly.
+
 type ApplicationFormInput = z.input<typeof applicationSchema>;
+// 👉 ApplicationFormInput is the raw input type before Zod transforms it.
+// 👉 Example: yearsOfExperience comes in as a string, but Zod coerces it to a number.
+
+
 
 interface Props {
-  listingId: string;
-  jobTitle: string;
+  listingId: string; // The job ID we’re applying to.
+  jobTitle: string;  // The job title (used in success message).
 }
+
 
 export function ApplicationForm({ listingId, jobTitle }: Props) {
   const queryClient = useQueryClient();
