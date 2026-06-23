@@ -9,6 +9,7 @@ using CareerHub.Api.Models;
 using CareerHub.Api.Services;
 
 namespace CareerHub.Api.Controllers;
+using CareerHub.Api.Exceptions;
 
 [ApiController]
 [ApiVersion(1)]
@@ -25,10 +26,10 @@ public class ApplicationsController(IApplicationService applicationService) : Co
         "Requires the Applicant role. Rate limited to stop bot-driven mass applications. " +
         "Returns a conflict if the applicant has already applied to this listing.")]
     public async Task<ActionResult<ApplicationResponse>> ApplyAsync(
-        Guid listingId, CancellationToken ct)
+        Guid listingId, [FromBody] ApplyRequest request, CancellationToken ct)
     {
         var applicantId = Guid.Parse(User.FindFirstValue("ApplicantId")!);
-        var response    = await applicationService.ApplyAsync(listingId, applicantId, ct);
+        var response    = await applicationService.ApplyAsync(listingId, applicantId, request, ct);
         return Created($"/api/v1/applications/{listingId}", response);
     }
 
