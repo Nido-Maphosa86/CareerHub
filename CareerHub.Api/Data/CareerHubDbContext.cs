@@ -173,6 +173,16 @@ public class CareerHubDbContext(DbContextOptions<CareerHubDbContext> options)
                   .IsRequired()
                   .HasMaxLength(20);
 
+            // ── Submitted form details (Assignment 1.4) ───────────────────
+            entity.Property(a => a.FullName).IsRequired().HasMaxLength(100);
+            entity.Property(a => a.Email).IsRequired().HasMaxLength(256);
+            entity.Property(a => a.Phone).HasMaxLength(30);
+            entity.Property(a => a.CoverLetter).IsRequired().HasMaxLength(2000);
+            entity.Property(a => a.LinkedInUrl).HasMaxLength(300);
+            entity.Property(a => a.YearsOfExperience).IsRequired();
+            entity.Property(a => a.AvailableImmediately).IsRequired();
+            entity.Property(a => a.NoticePeriodWeeks).IsRequired();
+
             // ── INDEXES (Part 3) ──────────────────────────────────────────
 
             // HasAlreadyApplied check — called on every application submission.

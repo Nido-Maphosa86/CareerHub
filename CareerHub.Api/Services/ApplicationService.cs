@@ -9,7 +9,7 @@ namespace CareerHub.Api.Services;
 
 public interface IApplicationService
 {
-    Task<ApplicationResponse> ApplyAsync(Guid listingId, Guid applicantId, CancellationToken ct = default);
+    Task<ApplicationResponse> ApplyAsync(Guid listingId, Guid applicantId, ApplyRequest request, CancellationToken ct = default);
     Task<IEnumerable<ApplicationResponse>> GetByListingIdAsync(Guid listingId, CancellationToken ct = default);
     Task<IEnumerable<ApplicationResponse>> GetByApplicantIdAsync(Guid applicantId, CancellationToken ct = default);
     Task UpdateStatusAsync(Guid listingId, Guid applicantId, ApplicationStatus newStatus, CancellationToken ct = default);
@@ -26,7 +26,7 @@ public class ApplicationService(
     IJobListingRepository  listingRepo) : IApplicationService
 {
     public async Task<ApplicationResponse> ApplyAsync(
-        Guid listingId, Guid applicantId, CancellationToken ct = default)
+        Guid listingId, Guid applicantId, ApplyRequest request, CancellationToken ct = default)
     {
         // Rule 1: The listing must be open for applications.
         // IsOpenForApplicationsAsync checks Status = Active AND ClosingDate > now.
@@ -43,10 +43,20 @@ public class ApplicationService(
 
         var application = new Application
         {
-            JobListingId = listingId,
-            ApplicantId  = applicantId,
-            SubmittedAt  = DateTime.UtcNow,
-            Status       = ApplicationStatus.Submitted
+            JobListingId         = listingId,
+            ApplicantId          = applicantId,
+            SubmittedAt          = DateTime.UtcNow,
+            Status               = ApplicationStatus.Submitted,
+
+            // ── Submitted form details (Assignment 1.4) ──────────────────
+            FullName             = request.FullName,
+            Email                = request.Email,
+            Phone                = request.Phone,
+            YearsOfExperience    = request.YearsOfExperience,
+            CoverLetter          = request.CoverLetter,
+            LinkedInUrl          = request.LinkedInUrl,
+            AvailableImmediately = request.AvailableImmediately,
+            NoticePeriodWeeks    = request.NoticePeriodWeeks
         };
 
         await appRepo.AddAsync(application, ct);

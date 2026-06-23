@@ -202,7 +202,6 @@ try
     builder.Services.AddHostedService<JobListingExpiryService>();
 
     var app = builder.Build();
-   app.UseCors("AllowFrontend");
     // ── MIDDLEWARE PIPELINE ────────────────────────────────────────────────
     // Order matters. Response compression goes first so every response below
     // it in the pipeline gets compressed before it reaches the client.

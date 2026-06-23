@@ -6,10 +6,9 @@ namespace CareerHub.Api.Models;
 // only stores the two foreign keys. It carries no data of its own.
 //
 // An application is not just a link — it is a domain concept.
-// It has a submission timestamp and a status that changes over time.
-// A link table cannot store either of those. The moment you need to
-// record WHEN something happened or WHAT STATE it is in, you need
-// an explicit entity.
+// It has a submission timestamp, a status that changes over time, and now
+// the details the applicant submitted when they applied. A link table cannot
+// store any of that.
 //
 // Composite primary key: (JobListingId, ApplicantId)
 // This is the naturally unique combination — one applicant can only
@@ -25,10 +24,22 @@ public class Application
     public Guid JobListingId { get; set; }
     public Guid ApplicantId { get; set; }
 
-    // ── Application data ──────────────────────────────────────────────────
+    // ── Application metadata ──────────────────────────────────────────────
     public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
 
     public ApplicationStatus Status { get; set; } = ApplicationStatus.Submitted;
+
+    // ── Submitted application details (Assignment 1.4 — frontend form) ────
+    // Captured as a snapshot at apply time. Kept on the application itself so
+    // the record stays accurate even if the applicant later edits their profile.
+    public string FullName { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public string? Phone { get; set; }
+    public int YearsOfExperience { get; set; }
+    public string CoverLetter { get; set; } = string.Empty;
+    public string? LinkedInUrl { get; set; }
+    public bool AvailableImmediately { get; set; }
+    public int NoticePeriodWeeks { get; set; }
 
     // ── Navigation properties ─────────────────────────────────────────────
     // null! suppresses the compiler nullable warning — EF Core
