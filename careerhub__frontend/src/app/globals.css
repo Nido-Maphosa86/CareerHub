@@ -18,9 +18,9 @@
 }
 
 .dark {
-  --bg: #0a0a0a;        /* near-black page background */
-  --fg: #fafafa;        /* light text on dark */
-  --grid: #1a1a1a;      /* faint grid line for dark mode */
+  --bg: #18181b;        /* zinc-900 — soft dark grey */
+  --fg: #fafafa;
+  --grid: #27272a;      /* lift the grid line to match */
 }
 
 html,
