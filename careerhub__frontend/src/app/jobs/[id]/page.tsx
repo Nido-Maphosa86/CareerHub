@@ -7,8 +7,6 @@
 // The server does the data fetching; the client does the form state, validation,
 // and mutation. Each does exactly what it is designed for.
 
-
-//single job details screen
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { JobListing } from "@/types";
@@ -21,13 +19,15 @@ interface Props {
   params: Promise<{ id: string }>;
 }
 
-//fetches the id
 export default async function JobDetailPage({ params }: Props) {
   const { id } = await params;
 
-  // Fetch the single job from the real backend. cache: "no-store" keeps it fresh.
+  // Assignment 2.2 — Part 3 + Stretch B: two cache tags.
+  //  - "jobs": shared with the listing pages, so closing any job invalidates this too.
+  //  - `job-${id}`: a per-job tag, so the close action can invalidate ONLY this
+  //    job's detail page without forcing every other job detail to refetch.
   const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/Jobs/${id}`, {
-    cache: "no-store",
+    next: { tags: ["jobs", `job-${id}`] },
   });
 
   // 404 -> show the not-found boundary immediately; do not render a partial page.
@@ -46,7 +46,7 @@ export default async function JobDetailPage({ params }: Props) {
 
   return (
     <div className="mx-auto max-w-3xl">
-      {/* Back link above the content. back to jobs link */}
+      {/* Back link above the content. */}
       <Link
         href="/jobs"
         className="mb-6 inline-flex items-center gap-1.5 text-sm font-medium text-zinc-500 transition-colors hover:text-lime-600 dark:text-zinc-400 dark:hover:text-lime-400"
@@ -85,10 +85,8 @@ export default async function JobDetailPage({ params }: Props) {
           </span>
         </div>
       </div>
-        
-        
+
       {/* Apply area below the details. */}
-      {/* checks if the job is closed and shows the appropriate apply area below the details. */}
       <div className="mt-6">
         {isClosed ? (
           // Closed jobs cannot be applied to — show a message instead of the form.

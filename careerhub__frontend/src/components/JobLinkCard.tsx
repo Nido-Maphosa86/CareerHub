@@ -9,8 +9,6 @@
 // next/link's OWN client boundary, not ours (see README, "Why JobLinkCard has
 // no use client").
 
-
-//Navigation card for the /jobs listing. Unlike JobCard (which is a selection component with an onClick), this wraps its content in a <Link> so clicking it changes the URL to /jobs/{id}.
 import Link from "next/link";
 import { JobListing } from "@/types";
 import { JobStatusBadge } from "@/components/JobStatusBadge";
@@ -22,7 +20,7 @@ interface Props {
 
 export function JobLinkCard({ job }: Props) {
   return (
-    <Link // the card is a link to the job's detail page
+    <Link
       href={`/jobs/${job.id}`}
       className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lg dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700 dark:hover:shadow-lime-400/5"
     >

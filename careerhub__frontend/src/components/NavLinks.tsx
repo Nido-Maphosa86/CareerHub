@@ -11,15 +11,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
-
-//array of navigation links for the header, each with a href and label.
 const links = [
   { href: "/jobs", label: "Jobs" },
   { href: "/dashboard/listings", label: "Dashboard" },
 ];
 
 export function NavLinks() {
-  const pathname = usePathname();// a hook to get the current route's pathname to determine which link is active.
+  const pathname = usePathname();
 
   return (
     <nav className="flex items-center gap-1">

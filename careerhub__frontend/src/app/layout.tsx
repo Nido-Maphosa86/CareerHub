@@ -21,7 +21,6 @@ export const metadata: Metadata = {
   description: "Browse open positions and apply on CareerHub.",
 };
 
-//layout component that provides the shared shell for every route, including the <html>/<body>, client providers, a persistent header with navigation, and the outer <main> with page padding. The header persists across navigations and never re-mounts, while the interactive bits inside it (NavLinks, AuthStatus, ThemeToggle) are their own Client Components.
 export default function RootLayout({
   children,
 }: {

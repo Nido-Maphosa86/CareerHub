@@ -22,17 +22,13 @@ interface Props {
   jobTitle: string;
 }
 
-// The ApplyPanel is a Client Component that checks the user's authentication and role status, and renders the appropriate content based on that status.
 export function ApplyPanel({ listingId, jobTitle }: Props) {
   const { isAuthenticated, isApplicant } = useAuth();
 
-  //checks if the user is logged in and if they are an applicant. If not, it shows the appropriate message or form.
   if (!isAuthenticated) {
     return <LoginPanel />;
   }
 
-
-  // Logged in, but not an applicant — show a message.
   if (!isApplicant) {
     return (
       <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 p-6 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
@@ -47,7 +43,6 @@ export function ApplyPanel({ listingId, jobTitle }: Props) {
       </div>
     );
   }
-  
-  // Logged in as applicant — show the form
+
   return <ApplicationForm listingId={listingId} jobTitle={jobTitle} />;
 }

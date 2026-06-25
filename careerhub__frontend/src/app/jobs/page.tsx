@@ -5,7 +5,6 @@
 // on the server, so the job data is baked into the HTML before it reaches the
 // browser — there is no client-side request to the jobs API on page load.
 
-//JObs page
 import { JobLinkCard } from "@/components/JobLinkCard";
 import { JobListing } from "@/types";
 
@@ -15,10 +14,14 @@ interface PagedResponse<T> {
 }
 
 export default async function JobsPage() {
-  // cache: "no-store" forces a fresh server-side fetch on every request, so the
-  // listing always reflects the current database (see README, item 1).
+  // Assignment 2.2 — Part 3: cache tag instead of "no-store".
+  // The jobs list rarely changes — only when an employer closes a listing.
+  // next: { tags: ["jobs"] } lets Next.js serve this from its server-side Data
+  // Cache until revalidateTag("jobs") is called (by the close Server Action in
+  // Part 6), at which point the next request fetches fresh. Tagging the SAME
+  // "jobs" tag here and on the dashboard means one close invalidates both.
   const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/Jobs`, {
-    cache: "no-store",
+    next: { tags: ["jobs"] },
   });
 
   // Do not swallow errors — a bad response surfaces loudly.
