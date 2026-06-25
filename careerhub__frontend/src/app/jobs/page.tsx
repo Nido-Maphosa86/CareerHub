@@ -5,6 +5,9 @@
 // on the server, so the job data is baked into the HTML before it reaches the
 // browser — there is no client-side request to the jobs API on page load.
 
+
+//from getting a fressh copy form the backend, to jobs being cached to the server,
+// 
 import { JobLinkCard } from "@/components/JobLinkCard";
 import { JobListing } from "@/types";
 
@@ -22,6 +25,8 @@ export default async function JobsPage() {
   // "jobs" tag here and on the dashboard means one close invalidates both.
   const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/Jobs`, {
     next: { tags: ["jobs"] },
+    //stores jobs in the server cache, so that when a job is closed or updated, 
+    // the cache can be invalidated and the jobs list can be refreshed with the latest data.
   });
 
   // Do not swallow errors — a bad response surfaces loudly.

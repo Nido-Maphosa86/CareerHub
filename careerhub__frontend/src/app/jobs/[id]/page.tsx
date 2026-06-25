@@ -14,6 +14,10 @@ import { JobStatusBadge } from "@/components/JobStatusBadge";
 import { ApplyPanel } from "@/components/ApplyPanel";
 import { ArrowLeft, MapPin, Lock } from "lucide-react";
 
+
+//JOb details screen
+//2 tags jobs and job-${id} are used to cache the job details and the jobs list, so that when a job is closed or updated, the cache can be invalidated and the jobs list can be refreshed with the latest data.
+
 interface Props {
   // Next.js 15: params is async and must be awaited.
   params: Promise<{ id: string }>;
@@ -27,7 +31,8 @@ export default async function JobDetailPage({ params }: Props) {
   //  - `job-${id}`: a per-job tag, so the close action can invalidate ONLY this
   //    job's detail page without forcing every other job detail to refetch.
   const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/Jobs/${id}`, {
-    next: { tags: ["jobs", `job-${id}`] },
+    next: { tags: ["jobs", `job-${id}`] }, //when revalidate is called, it will invalidate the cache for this job and the jobs list
+                                           //share the same "jobs" tag as the jobs list, so closing any job invalidates this too.
   });
 
   // 404 -> show the not-found boundary immediately; do not render a partial page.
