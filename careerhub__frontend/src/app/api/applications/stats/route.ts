@@ -54,6 +54,7 @@ export async function GET() {
   }
 }
 
+//this ednpoint only supports GET requests. If a POST request is made, it returns a 405 Method Not Allowed response with an appropriate message and the Allow header set to "GET".
 // Any non-GET method is not allowed.
 export async function POST() {
   return NextResponse.json(

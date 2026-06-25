@@ -11,6 +11,7 @@ import Link from "next/link";
 import { JobListing } from "@/types";
 import { CloseJobButton } from "@/components/CloseJobButton";
 
+//parallel search for jobs and stats, then join them together to render the table
 interface PagedResponse<T> {
   data: T[];
 }
@@ -48,9 +49,10 @@ async function getApplicationStats(): Promise<JobStat[]> {
 export async function ListingsTable() {
   // Part 4: fetch both sources in PARALLEL. Promise.all starts both fetches at
   // once and waits for the slower of the two — not one after the other.
-  const [jobs, stats] = await Promise.all([getJobs(), getApplicationStats()]);
+  const [jobs, stats] = await Promise.all([getJobs(), getApplicationStats()]);// fetches both jobs at the same tame
 
   // Build a quick id -> count lookup for the join.
+  //represent job row
   const countByJob = new Map(stats.map((s) => [s.jobId, s.applicationCount]));
 
   if (jobs.length === 0) {

@@ -6,6 +6,10 @@
 // one small fetch, it resolves quickly — so when wrapped in its own <Suspense>
 // boundary, it can replace its skeleton before the slower table is ready.
 
+
+//application count screen on dashboard
+//calls the route handler applications stats// which lives in the frontend
+//application summary Skeleton
 import { Users } from "lucide-react";
 
 interface JobStat {
@@ -18,7 +22,7 @@ interface JobStat {
 async function getApplicationStats(): Promise<JobStat[]> {
   const res = await fetch(
     `${process.env.NEXT_PUBLIC_SITE_URL}/api/applications/stats`,
-    { cache: "no-store" }
+    { cache: "no-store" }// calls the frontend route handler to get the application stats, which in turn calls the backend jobs endpoint to get the application counts for each job
   );
   if (!res.ok) {
     throw new Error(`Failed to fetch application stats: ${res.status}`);
