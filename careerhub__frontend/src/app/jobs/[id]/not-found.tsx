@@ -8,7 +8,6 @@
 import Link from "next/link";
 import { SearchX } from "lucide-react";
 
-// The JobNotFound component is a Server Component that displays a message when a job is not found. It provides a link to navigate back to the jobs listing page.
 export default function JobNotFound() {
   return (
     <div className="mx-auto max-w-lg py-16 text-center">
@@ -25,7 +24,7 @@ export default function JobNotFound() {
       </p>
 
       <Link
-        href="/jobs"// back to jobs link
+        href="/jobs"
         className="mt-6 inline-flex items-center rounded-lg bg-lime-400 px-4 py-2.5 text-sm font-semibold text-black transition-colors hover:bg-lime-300"
       >
         Back to all jobs

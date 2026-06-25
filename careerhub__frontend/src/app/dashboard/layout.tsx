@@ -11,7 +11,7 @@
 // re-run this function or re-mount the sidebar (see README, item 4).
 
 import Link from "next/link";
-//employer dashboard layout. It adds a two-column structure — a fixed-width sidebar plus a flexible content area — INSIDE the root layout's shell. It does not add its own full-page <main> padding; the root layout already provides that.
+
 export default function DashboardLayout({
   children,
 }: {
