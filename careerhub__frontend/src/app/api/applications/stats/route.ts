@@ -12,16 +12,12 @@
 // counts. The endpoint still behaves exactly as the assignment requires:
 // GET-only, returns an array, empty array (not 404) when there are no jobs.
 
-
-//route handler that return how many applications have been submitted for each job. The response is an array of objects, each containing a jobId and the corresponding applicationCount. If there are no jobs or if the backend is unavailable, it returns an empty array.
 import { NextResponse } from "next/server";
 
-// Shape of the paginated response returned by the real backend.
 interface PagedResponse<T> {
   data: T[];
 }
 
-// Shape of a job object from the real backend, including applicationCount.
 interface RealJob {
   id: string;
   applicationCount: number;
@@ -31,38 +27,32 @@ interface RealJob {
 export async function GET() {
   try {
     const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/Jobs`, {
-      cache: "no-store", // Always fetch fresh data for application stats.
+      cache: "no-store",
     });
 
-    // If the jobs source is unavailable, return an empty array instead of error.
+    // If the jobs source is unavailable, return an empty array rather than error.
     if (!res.ok) {
       return NextResponse.json([], { status: 200 });
     }
 
     const json: PagedResponse<RealJob> = await res.json();
 
-    // Map each job to the required shape: { jobId, applicationCount }.
     const stats = json.data.map((job) => ({
       jobId: job.id,
-      applicationCount: job.applicationCount ?? 0, // Default to 0 if missing.
+      applicationCount: job.applicationCount ?? 0,
     }));
 
     return NextResponse.json(stats, { status: 200 });
   } catch {
-    // Network failure (e.g. backend down) — still return a valid empty array.
+    // Network failure (e.g. backend down) — still return a valid array.
     return NextResponse.json([], { status: 200 });
   }
 }
 
-//this ednpoint only supports GET requests. If a POST request is made, it returns a 405 Method Not Allowed response with an appropriate message and the Allow header set to "GET".
 // Any non-GET method is not allowed.
 export async function POST() {
   return NextResponse.json(
-    {
-      title: "Method Not Allowed",
-      detail: "This endpoint only supports GET.",
-      status: 405,
-    },
+    { title: "Method Not Allowed", detail: "This endpoint only supports GET.", status: 405 },
     { status: 405, headers: { Allow: "GET" } }
   );
 }

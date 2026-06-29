@@ -1,12 +1,14 @@
 // src/app/dashboard/listings/page.tsx
-// Assignment 2.2 — Part 5: the streaming employer dashboard.
+// Assignment 2.2 — Part 5: streaming dashboard with two Suspense boundaries.
+// Assignment 2.3 — Part 7: adds the store-driven view toggle + closed-jobs filter.
 //
-// The page no longer fetches or awaits any data. It renders the heading and
-// static UI immediately, then hands the data work to two self-contained
-// components, each behind its OWN <Suspense> boundary. Next.js streams the
-// heading to the browser first, shows each skeleton while its component's data
-// is pending, and swaps in each component independently the moment its own
-// fetch resolves — the fast summary does not wait for the slower table.
+// The store lives in the browser and an async Server Component cannot read it.
+// So the page pre-renders all four ListingsTable variants on the server (table
+// and grid × showing or hiding closed jobs) and passes them as props to the
+// Client wrapper <DashboardView>, which reads the Zustand store and shows the
+// matching variant. The four ListingsTable instances pass view/showClosedJobs
+// as PROPS; their identical fetches are de-duplicated by Next.js within one
+// render, so this is not four times the network cost.
 
 import { Suspense } from "react";
 import {
@@ -17,6 +19,8 @@ import {
   ListingsTable,
   ListingsTableSkeleton,
 } from "@/components/ListingsTable";
+import { DashboardToolbar } from "@/components/DashboardToolbar";
+import { DashboardView } from "@/components/DashboardView";
 
 export default async function DashboardListingsPage() {
   return (
@@ -38,9 +42,18 @@ export default async function DashboardListingsPage() {
         </Suspense>
       </div>
 
-      {/* Slower component — separate boundary, resolves independently. */}
+      {/* Store-driven toolbar (client). */}
+      <DashboardToolbar />
+
+      {/* Slower component — its own boundary. The client wrapper picks which
+          pre-rendered server variant to show based on the store. */}
       <Suspense fallback={<ListingsTableSkeleton />}>
-        <ListingsTable />
+        <DashboardView
+          tableViewAll={<ListingsTable view="table" showClosedJobs={true} />}
+          tableView={<ListingsTable view="table" showClosedJobs={false} />}
+          gridViewAll={<ListingsTable view="grid" showClosedJobs={true} />}
+          gridView={<ListingsTable view="grid" showClosedJobs={false} />}
+        />
       </Suspense>
     </div>
   );

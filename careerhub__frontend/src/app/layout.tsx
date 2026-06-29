@@ -1,19 +1,17 @@
 // src/app/layout.tsx
-// Root layout — a Server Component. It provides the shared shell every route
-// sits inside: the <html>/<body>, the client providers, a persistent header
-// with navigation, and the outer <main> with page padding.
+// Assignment 2.3 — Part 5: the root layout is now an async Server Component.
 //
-// The header lives here (not in a page) so it persists across navigations and
-// never re-mounts. The interactive bits inside it (NavLinks, AuthStatus,
-// ThemeToggle) are their own Client Components; the layout stays a Server
-// Component and adds no "use client".
+// It calls await auth() once per request to read the session, then shows nav
+// that matches the signed-in user's role. auth() here is cheap: it verifies the
+// signed JWT cookie in memory — there is no database or network call — so doing
+// it on every page render is not a performance problem.
 
 import type { Metadata } from "next";
 import Link from "next/link";
 import "./globals.css";
 import { Providers } from "./providers";
-import { NavLinks } from "@/components/NavLinks";
-import { AuthStatus } from "@/components/AuthStatus";
+import { auth } from "@/auth";
+import { NavBar } from "@/components/NavBar";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 export const metadata: Metadata = {
@@ -21,20 +19,21 @@ export const metadata: Metadata = {
   description: "Browse open positions and apply on CareerHub.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Read the session once for the whole layout.
+  const session = await auth();
+
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <body className="min-h-screen antialiased">
         <Providers>
           <div className="min-h-screen">
-            {/* Persistent app header. */}
             <header className="border-b border-zinc-200 dark:border-zinc-800">
               <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4">
-                {/* Brand — now a Link to the home page. */}
                 <Link href="/" className="flex items-center gap-2.5">
                   <div className="flex h-8 w-8 items-center justify-center rounded-md bg-lime-400">
                     <span className="text-base font-black text-black">C</span>
@@ -44,16 +43,17 @@ export default function RootLayout({
                   </span>
                 </Link>
 
-                {/* Navigation + auth + theme. */}
                 <div className="flex items-center gap-3">
-                  <NavLinks />
-                  <AuthStatus />
+                  {/* Role-aware nav: links + identity + sign out. */}
+                  <NavBar
+                    username={session?.user?.name ?? null}
+                    role={session?.user?.role ?? null}
+                  />
                   <ThemeToggle />
                 </div>
               </div>
             </header>
 
-            {/* Outer content shell — pages render here. */}
             <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
           </div>
         </Providers>
