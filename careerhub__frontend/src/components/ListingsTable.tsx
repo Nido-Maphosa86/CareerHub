@@ -1,17 +1,19 @@
 // src/components/ListingsTable.tsx
-// Assignment 2.2 — Parts 4, 5, 6: the employer listings table.
+// Assignment 2.2 — Parts 4, 5, 6: the employer listings.
+// Assignment 2.3 — Part 7: now renders as a table OR a card grid, and can hide
+// closed jobs, based on props supplied by the dashboard.
 //
-// An async Server Component. It is self-contained: it fetches BOTH jobs and
-// stats internally (in parallel via Promise.all) rather than receiving them as
-// props. That makes it droppable behind its own <Suspense> boundary on the
-// dashboard. It joins each job to its application count and renders the table,
-// including the Close action per row.
+// It is still an async Server Component that fetches BOTH jobs and stats
+// internally in parallel (Promise.all). What it CANNOT do is read the Zustand
+// store — Zustand's useStore is a React hook and hooks only run in Client
+// Components, while this runs on the server during streaming. So the view and
+// showClosedJobs values are passed in as PROPS by a thin Client wrapper
+// (DashboardView) that reads the store and forwards them here.
 
 import Link from "next/link";
 import { JobListing } from "@/types";
 import { CloseJobButton } from "@/components/CloseJobButton";
 
-//parallel search for jobs and stats, then join them together to render the table
 interface PagedResponse<T> {
   data: T[];
 }
@@ -21,8 +23,11 @@ interface JobStat {
   applicationCount: number;
 }
 
-// Jobs come from the real backend, tagged "jobs" so the close action can
-// invalidate them (Part 3).
+interface Props {
+  view: "table" | "grid";
+  showClosedJobs: boolean;
+}
+
 async function getJobs(): Promise<JobListing[]> {
   const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/Jobs`, {
     next: { tags: ["jobs"] },
@@ -34,7 +39,6 @@ async function getJobs(): Promise<JobListing[]> {
   return json.data;
 }
 
-// Stats come from the frontend's own endpoint, always fresh.
 async function getApplicationStats(): Promise<JobStat[]> {
   const res = await fetch(
     `${process.env.NEXT_PUBLIC_SITE_URL}/api/applications/stats`,
@@ -46,23 +50,72 @@ async function getApplicationStats(): Promise<JobStat[]> {
   return res.json();
 }
 
-export async function ListingsTable() {
-  // Part 4: fetch both sources in PARALLEL. Promise.all starts both fetches at
-  // once and waits for the slower of the two — not one after the other.
-  const [jobs, stats] = await Promise.all([getJobs(), getApplicationStats()]);// fetches both jobs at the same tame
+export async function ListingsTable({ view, showClosedJobs }: Props) {
+  const [allJobs, stats] = await Promise.all([getJobs(), getApplicationStats()]);
 
-  // Build a quick id -> count lookup for the join.
-  //represent job row
   const countByJob = new Map(stats.map((s) => [s.jobId, s.applicationCount]));
+
+  // Apply the "show closed jobs" preference. Same data, no new fetch.
+  const jobs = showClosedJobs
+    ? allJobs
+    : allJobs.filter((j) => j.status !== "Closed");
 
   if (jobs.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-zinc-300 p-12 text-center dark:border-zinc-700">
-        <p className="text-zinc-500 dark:text-zinc-400">No listings yet.</p>
+        <p className="text-zinc-500 dark:text-zinc-400">No listings to show.</p>
       </div>
     );
   }
 
+  // GRID VIEW — cards reusing the same jobs + stats.
+  if (view === "grid") {
+    return (
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {jobs.map((job) => (
+          <div
+            key={job.id}
+            className="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <h3 className="font-bold text-zinc-900 dark:text-zinc-100">
+                {job.title}
+              </h3>
+              <span
+                className={
+                  job.status === "Closed"
+                    ? "rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+                    : "rounded-full bg-lime-100 px-2 py-0.5 text-xs font-semibold text-lime-700 dark:bg-lime-400/10 dark:text-lime-300"
+                }
+              >
+                {job.status}
+              </span>
+            </div>
+            <p className="text-sm font-medium text-lime-600 dark:text-lime-400">
+              {job.companyName}
+            </p>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              {job.location}
+            </p>
+            <p className="text-sm text-zinc-600 dark:text-zinc-300">
+              {countByJob.get(job.id) ?? 0} applications
+            </p>
+            <div className="mt-1 flex items-center justify-between border-t border-zinc-100 pt-3 dark:border-zinc-800">
+              <Link
+                href={`/jobs/${job.id}`}
+                className="text-sm font-medium text-lime-600 underline-offset-2 hover:underline dark:text-lime-400"
+              >
+                View
+              </Link>
+              <CloseJobButton jobId={job.id} currentStatus={job.status} />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // TABLE VIEW (default).
   return (
     <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
       <table className="w-full text-left text-sm">
@@ -103,7 +156,6 @@ export async function ListingsTable() {
                   {job.status}
                 </span>
               </td>
-              {/* Join: look up the count by job id, default to 0 if absent. */}
               <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">
                 {countByJob.get(job.id) ?? 0}
               </td>

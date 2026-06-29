@@ -12,22 +12,15 @@
 // of the server process, the change persists across requests (Assignment 2.2,
 // Part 2). This is the correct approach for a mock — a real backend would
 // persist to a database instead.
-//
-// Summary:
-// This file defines a mock "jobs database" for testing. It exports an array of job
-// objects that can be read or updated by route handlers. Because the array is mutable,
-// PATCH requests can change job status and the change will persist until the server restarts.
 
 export interface MockJob {
-  id: string;        // Unique identifier for the job
-  title: string;     // Job title
-  company: string;   // Company offering the job
-  location: string;  // Job location (city, country, or remote)
-  status: string;    // Current status ("Active" or "Closed")
-  description: string; // Job description text
+  id: string;
+  title: string;
+  company: string;
+  location: string;
+  status: string;
+  description: string;
 }
-// This interface defines the shape of each job object in the mock array.
-
 
 // Mutable on purpose — PATCH updates entries in place.
 export const mockJobs: MockJob[] = [
@@ -56,6 +49,3 @@ export const mockJobs: MockJob[] = [
     description: "This position has been filled — thank you to all applicants.",
   },
 ];
-// This array acts as the mock job data store.
-// Route Handlers can read from it or update the status field with PATCH.
-// Because it is exported and mutable, updates persist for the life of the server process.

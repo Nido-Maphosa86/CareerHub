@@ -15,19 +15,17 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await params; // In Next.js 15, params is a Promise — must await it.
+  const { id } = await params; // Next 15: params is a Promise — await it.
 
-  const job = mockJobs.find((j) => j.id === id); // Look for a job with matching id.
+  const job = mockJobs.find((j) => j.id === id);
 
   if (!job) {
-    // If no job found, return a 404 error in Problem Details format.
     return NextResponse.json(
       { title: "Job not found", detail: `No job exists with id '${id}'.`, status: 404 },
       { status: 404 }
     );
   }
 
-  // If job exists, return it with status 200.
   return NextResponse.json(job, { status: 200 });
 }
 
@@ -39,7 +37,7 @@ export async function PATCH(
 ) {
   const { id } = await params;
 
-  // Find the job first — return 404 if it does not exist.
+  // Find the job first — 404 if it does not exist.
   const job = mockJobs.find((j) => j.id === id);
   if (!job) {
     return NextResponse.json(
@@ -48,7 +46,7 @@ export async function PATCH(
     );
   }
 
-  // Parse the request body. If parsing fails or status is missing, return 400.
+  // Parse the body. A missing/!invalid body or a missing status field -> 400.
   let body: { status?: string };
   try {
     body = await request.json();
@@ -63,10 +61,9 @@ export async function PATCH(
     );
   }
 
-  // Update the job in place. Because mockJobs is mutable, this persists until server restart.
+  // Mutate in place — persists for the life of the server process.
   job.status = body.status;
 
-  // Return the updated job with status 200.
   return NextResponse.json(job, { status: 200 });
 }
 
