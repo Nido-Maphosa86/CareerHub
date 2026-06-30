@@ -1,235 +1,148 @@
-# CareerHub Frontend
+# Assignment 3.1 — CareerHub Rich UI & Form Patterns
 
-A Next.js 15 frontend for the CareerHub job board. TypeScript, Tailwind v4,
-TanStack Query, React Hook Form, and Zod. Dark, lime-on-black identity with a
-responsive card grid and an accessible job application form.
-
-## Run it
-
-```bash
-npm install
-npm run dev
-```
-
-Open http://localhost:3000.
-
-## Configuration
-
-```
-NEXT_PUBLIC_API_URL=http://localhost:3000
-```
-
-Assignment 1.4 runs self-contained: jobs come from the mock route at
-`/api/jobs` and applications post to `/api/applications`, both Next.js route
-handlers on this origin. To use the live .NET backend for jobs instead, set
-`NEXT_PUBLIC_API_URL=http://localhost:5000/api/v1` and change the path in
-`fetchJobs` (`src/lib/api.ts`) from `/api/jobs` to `/Jobs`.
+This project includes toast messages, a multi-step application form with auto-save (draft), a confirmation dialog for risky actions, loading skeletons, and two different empty states.
 
 ---
 
-## Assignment 1.4 — Applications & Mutations
+## Part 1 — Written Decisions
 
-### Part 1 — Written Decisions
+### 1. Draft persistence strategy
 
-#### 1. Why `@hookform/resolvers` is a separate package
+**Storage key.**
+The key used is `careerhub-application-${jobId}`. It is linked to a specific job because a draft belongs to one application only. This prevents drafts from mixing.
 
-React Hook Form deliberately knows nothing about any specific validation
-library, and Zod knows nothing about forms. If RHF shipped Zod support
-directly it would have to ship adapters for Yup, Joi, Valibot, Superstruct,
-and every other validator too, and bump its own version every time any of
-those released a breaking change. Pulling the adapters into a separate
-`@hookform/resolvers` package lets each side evolve independently: a Zod major
-release only requires a new resolvers release, not a new RHF release, and a
-project that uses Yup never pulls in Zod code.
+*Two jobs at once:*
+If a user opens job A and job B, each job has its own draft (`careerhub-application-A` and `careerhub-application-B`). Typing in one will not affect the other. If there was only one key, one draft would overwrite the other.
 
-At runtime, `zodResolver(schema)` returns a **resolver function**. RHF calls
-that function on submit with the signature `(values, context, options)`, where
-`values` is the current form values object. The resolver calls
-`schema.safeParseAsync(values)` on the Zod schema. It returns an object of
-shape `{ values, errors }`: on success, `{ values: <parsed, coerced data>,
-errors: {} }`; on failure, `{ values: {}, errors: <map keyed by field path,
-each entry { type, message }> }`. RHF reads that `errors` map to populate
-`formState.errors`, which is how Zod messages end up next to the right fields.
+*Different device:*
+`localStorage` only works on one browser and device. A draft saved on a laptop will not appear on a phone. This is expected because draft saving is only for preventing data loss on the same device, not for syncing across devices.
 
-#### 2. The number input problem
+**When the draft is cleared.**
+The draft is deleted in these cases:
 
-`<input type="number" />` hands back a string. Two ways to get a number:
+1. **After successful submission** — the draft becomes a real application, so keeping it could cause duplicate submissions.
+2. **When the user clicks "Discard draft"** — the user chooses to delete it.
+3. **Not cleared when leaving the page** — this is intentional so the draft is not lost.
 
-- **Solution A — `valueAsNumber: true`** converts at the **RHF layer**. RHF
-  runs `Number(value)` in its `onChange` before the value is ever stored, so by
-  the time the resolver runs, the field is already a number and `z.number()`
-  passes.
-- **Solution B — `z.coerce.number()`** converts at the **Zod layer**. The value
-  stays a string inside RHF; when validation runs, Zod wraps it as
-  `Number(value)` and validates the result.
-
-Both produce an identical `z.infer<typeof schema>` because `z.infer` reflects
-the schema's **output** type, and both schemas output `number`
-(`z.number()` outputs number; `z.coerce.number()` also outputs number — the
-coercion changes the input it accepts, not the type it emits). The layer where
-the string becomes a number is irrelevant to the static output type.
-
-**I use Solution B (`z.coerce.number()`).** The assignment requires
-`{...register("fieldName")}` with no options, so all conversion and validation
-must live in the schema. Solution B keeps the `register` calls option-free and
-puts every rule in one place.
-
-(Side note: because `z.coerce.number()`'s **input** type is `unknown` while its
-**output** is `number`, the form uses RHF's three-generic form —
-`useForm<z.input, unknown, z.output>` — so the fields type as input and
-`handleSubmit` hands `onValid` the coerced output.)
-
-#### 3. `mutate` vs `mutateAsync` — the isSubmitting timing bug
-
-`handleSubmit(onValid)` **awaits** whatever `onValid` returns, and keeps
-`isSubmitting` true until that awaited value settles. `mutation.mutate(data)`
-returns **`void`** — it is fire-and-forget. So if `onValid` calls `mutate` and
-returns, there is nothing to await; `handleSubmit`'s await resolves
-immediately, and `isSubmitting` flips back to `false` while the 800ms request
-is still in flight. The button re-enables mid-request.
-
-`mutation.mutateAsync(data)` returns a **Promise** that resolves or rejects
-when the request actually completes. By writing `await
-mutation.mutateAsync(payload)` inside `onValid`, `onValid` stays pending until
-the request finishes, so `handleSubmit` keeps `isSubmitting` true for the whole
-request. That is the fix.
-
-#### 4. `onSuccess` placement
-
-The two placements differ when **the component unmounts before the request
-resolves**. `onSuccess` in the `useMutation` options (Option A) is tied to the
-mutation observer the QueryClient owns, so it still runs even if the form
-unmounted. `onSuccess` passed to `mutate(data, { onSuccess })` (Option B) is
-tied to that specific call site, and React Query **does not** run it if the
-component that called `mutate` has unmounted by the time the request resolves.
-
-**I use Option A** to invalidate `["jobs"]` and `reset()`. Invalidating the
-jobs cache should happen on every success regardless of whether the form is
-still on screen — the applicant count must refresh even if the user navigated
-away — and keeping the success behaviour in one place (the mutation
-definition) means there is a single source of truth rather than logic
-duplicated at each call site.
-
-### README Updates
-
-#### 1. Schema design decisions (phone / linkedInUrl)
-
-`z.string().optional()` alone does not work because an HTML input that is left
-blank does not submit `undefined` — it submits `""` (an empty string).
-`optional()` only makes `undefined` an accepted value; the empty string still
-flows into the `.regex(...)` / `.url()` check and **fails validation**, so a
-blank optional field would show an error.
-
-`.or(z.literal(""))` adds the empty string as an explicitly valid value, so a
-blank field passes. Combined with `.optional()`, the final inferred type is
-`string | undefined`. Before building the API payload I convert `""` to
-`undefined` (`data.phone ? data.phone : undefined`) so the server receives an
-absent field rather than an empty string, matching the `phone?: string` shape.
-
-#### 2. The cross-field refine
-
-`.refine(predicate, options)` receives the **entire parsed object** as the
-first argument to its predicate, and the predicate returns a boolean (`true` =
-valid). That object-level access is exactly why it can compare two fields:
-`(data) => data.availableImmediately || data.noticePeriodWeeks > 0`.
-
-The `path: ["noticePeriodWeeks"]` option attaches the resulting error to that
-field, so `errors.noticePeriodWeeks.message` renders beside the notice-period
-input. **Omit `path`** and Zod attaches the error to the form root rather than
-any field, so the field-level UI never shows it and the user sees nothing.
-
-A field-level `.min(1)` on `noticePeriodWeeks` cannot express this because the
-requirement is **conditional on another field**. A single-field check has no
-access to `availableImmediately`; it would force a notice period even for
-candidates who are available immediately. Only an object-level `.refine` can
-read both fields at once.
-
-#### 3. The two loading flags
-
-Timeline from click to response:
-
-1. Click → RHF sets `isSubmitting = true`, runs Zod validation.
-2. Validation passes → `onValid` runs → `mutateAsync` fires →
-   `mutation.isPending = true`.
-3. ~800ms pass. **Both flags are true** for this whole window — this is what
-   `isBusy = isSubmitting || mutation.isPending` covers.
-4. Response arrives → `mutation.isPending = false`, `onSuccess` runs.
-5. The promise from `mutateAsync` resolves → `onValid`'s `await` completes →
-   `isSubmitting = false`.
-
-So there is a brief tail (between steps 4 and 5) where `mutation.isPending` is
-already `false` while `isSubmitting` is still `true`. The OR keeps the button
-disabled across it.
-
-**Can `mutation.isPending` outlast `isSubmitting`?** No — not when `mutateAsync`
-is awaited. `isPending` goes false the instant the request settles, and
-`isSubmitting` only goes false *after* the awaited `mutateAsync` promise
-resolves, which is later. So `isSubmitting` outlasts `isPending`, never the
-other way around. (With `mutate` instead of `mutateAsync`, `isSubmitting` would
-end *first* — the timing bug from Q3.)
-
-#### 4. Gate — build output
-
-`npm run build` completes with zero TypeScript errors and zero ESLint errors:
-
-```
-> careerhub-frontend@0.1.0 build
-> next build
-   ▲ Next.js 15.1.0
-   - Environments: .env.local
-   Creating an optimized production build ...
- ✓ Compiled successfully
-   Linting and checking validity of types ...
-   Collecting page data ...
-   Generating static pages (6/6)
-   Finalizing page optimization ...
-
-Route (app)                              Size     First Load JS
-┌ ○ /                                    45.7 kB         157 kB
-├ ○ /_not-found                          979 B           106 kB
-├ ƒ /api/applications                    140 B           105 kB
-└ ƒ /api/jobs                            140 B           105 kB
-+ First Load JS shared by all            105 kB
-
-○  (Static)   prerendered as static content
-ƒ  (Dynamic)  server-rendered on demand
-```
+**Which fields are stored.**
+All fields are stored: name, email, phone, cover letter, LinkedIn URL, and referral source. These are safe because they are not sensitive. No passwords or tokens are saved.
 
 ---
 
-## Earlier assignments (summary)
+### 2. The skeleton loader contract
 
-- **1.1** — Next.js 15 setup, `JobListing` / `EmploymentType` types.
-- **1.2** — Components, badges, theme toggle, sessionStorage selection.
-- **1.3** — TanStack Query data layer: `fetchJobs`, `Providers` with a
-  `QueryClient` via `useState`, skeletons, `useQuery` with three render
-  branches.
-- **Live API** — connected to the real .NET backend; `fetchJobs` unwraps the
-  paginated response. (Toggled to mock for 1.4 — see Configuration.)
-- **Redesign** — responsive card grid, lime-on-black palette.
+**Matching size and layout.**
+The skeleton must look like the real job card. It should have the same shape, spacing, and layout so that when the real data loads, nothing jumps or shifts.
 
-## Structure
+**3 jobs but 6 skeletons.**
+If you show 6 skeletons but only 3 real jobs load, the page shrinks, which can confuse users. However, the system does not know the number of jobs before loading, so a fixed number (6) is used as a design choice.
+
+**Paired component pattern.**
+A skeleton must match its real component exactly. For example, `JobCardSkeleton` must match `JobLinkCard`. If they do not match, the layout will shift when loading finishes, which looks bad.
+
+---
+
+### 3. AlertDialog vs other options
+
+**Closing a job → AlertDialog.**
+Closing a job is permanent. The confirmation dialog makes sure the user really wants to do it.
+
+**Discarding a draft → AlertDialog.**
+Deleting a draft cannot be undone, so confirmation is needed.
+
+(A normal dialog is for simple actions. Inline confirmation is for small actions. These are not suitable for permanent actions.)
+
+**Problem with Server Action.**
+The dialog is rendered outside the form (in a portal). This means a submit button inside it does not work because it is not connected to the form.
+
+**Solution: `useTransition`.**
+Instead of using form submission, the action is called directly in JavaScript using `onClick`. The form data is created manually and passed to the server action. `useTransition` is used to handle loading state.
+
+This works because it does not depend on the form structure.
+
+---
+
+### 4. Empty state types
+
+**Why two types.**
+There are two situations:
+
+* No jobs exist at all
+* Jobs exist, but filters removed them
+
+These look the same (no results), but they mean different things.
+
+**Where the check happens.**
+The server checks if there are jobs before filtering. It sends:
+
+* the filtered jobs
+* a flag (`databaseEmpty`)
+
+The UI then decides which message to show.
+
+---
+
+## README Updates
+
+### Draft storage key decision
+
+The key uses the job ID so each job has its own draft. This prevents overwriting when applying to multiple jobs.
+
+If the job changes later, the draft is still valid because it only stores user answers, not job data. The user can review before submitting.
+
+---
+
+### Solving AlertDialog with a Server Action
+
+The problem is that the dialog is outside the form, so submit does not work.
+
+The solution is to call the server action directly using `onClick` and `useTransition`. This avoids relying on form submission.
+
+---
+
+### The Back button and validation
+
+The Back button does not validate.
+
+Back means the user wants to go back, not confirm data. If validation was required, the user could get stuck.
+
+Only the Next button should validate.
+
+---
+
+### Skeleton count justification
+
+Six skeletons are shown because:
+
+* Too few looks empty
+* Too many looks misleading
+
+Six gives a good balance and fills the screen nicely.
+
+---
+
+### Empty state explanation
+
+The server checks if there are jobs before filtering.
+
+If no jobs exist → show "No jobs available"
+If jobs exist but filters remove them → show "No jobs match your search"
+
+This must be done on the server because only the server knows the full list.
+
+---
+
+## Gate
+
+The project must build with no errors.
+
+Commands used:
+
+* `npx tsc --noEmit` → 0 errors
+* `next build` → success
+
+(Some warnings may appear, but they are not errors.)
 
 ```
-src/
-├── app/
-│   ├── api/applications/route.ts   POST submit, 405 on GET, 400, 800ms, 201
-│   ├── api/jobs/route.ts           Mock jobs (paginated shape)
-│   ├── globals.css                 Tailwind v4, lime/black tokens
-│   ├── layout.tsx                  Root layout, dark by default
-│   ├── page.tsx                    Grid + selection panel + ApplicationForm
-│   └── providers.tsx               QueryClient via useState
-├── components/
-│   ├── ui/badge.tsx
-│   ├── ApplicationForm.tsx         Zod schema, RHF, useMutation, all states
-│   ├── JobCard.tsx                 (unchanged in 1.4)
-│   ├── JobCardSkeleton.tsx         (unchanged in 1.4)
-│   ├── JobList.tsx                 (unchanged in 1.4)
-│   ├── JobStatusBadge.tsx          (unchanged in 1.4)
-│   └── ThemeToggle.tsx             (unchanged in 1.4)
-├── lib/
-│   ├── api.ts                      fetchJobs + submitApplication
-│   └── utils.ts                    cn helper
-└── types/index.ts                  JobListing, EmploymentType,
-                                    ApplicationRequest, ApplicationResponse
+PASTE THE OUTPUT OF: npm run build
 ```
