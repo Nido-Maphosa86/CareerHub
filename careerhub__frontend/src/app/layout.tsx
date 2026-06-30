@@ -13,6 +13,7 @@ import { Providers } from "./providers";
 import { auth } from "@/auth";
 import { NavBar } from "@/components/NavBar";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
   title: "CareerHub — Find your next role",
@@ -56,6 +57,11 @@ export default async function RootLayout({
 
             <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
           </div>
+
+          {/* Assignment 3.1 — Part 2: app-wide toast host. Placed top-right.
+              The nav sits top-left/centre, so top-right toasts do not overlap it.
+              richColors gives success/error their own colour treatment. */}
+          <Toaster position="top-right" richColors closeButton />
         </Providers>
       </body>
     </html>
