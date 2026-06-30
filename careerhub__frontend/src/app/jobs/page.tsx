@@ -1,15 +1,22 @@
 // src/app/jobs/page.tsx
-// Assignment 2.3 — Part 6: the candidate jobs listing with URL-driven filters.
+// Assignment 2.3 — Part 6: URL-driven filters.
+// Assignment 3.1 — Part 5: two distinct empty states.
 //
-// The page reads q, location, and status from searchParams (Next.js passes the
-// URL query to page components) and filters the jobs in getJobs() before
-// rendering. The fetch itself still uses next: { tags: ["jobs"] } — the cache
-// stores the FULL unfiltered list, and we filter in JavaScript afterwards
-// because the mock API does not support query-parameter filtering.
+// The page reads q, location, status from searchParams and filters in JS after
+// a cached fetch. It now distinguishes TWO empty states:
+//   State 1 — the database has no jobs at all (the UNFILTERED list is empty).
+//   State 2 — the filters eliminated every result (unfiltered has jobs, the
+//             filtered list is empty).
+// The distinction is made SERVER-SIDE, because that is where we hold both counts:
+// getJobs returns the filtered list AND a flag for whether the source was empty
+// before filtering. The two states offer different actions: State 1 offers
+// nothing (the user cannot conjure jobs); State 2 offers "Clear all filters".
 
 import { JobLinkCard } from "@/components/JobLinkCard";
 import { JobFilters } from "@/components/JobFilters";
+import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { JobListing } from "@/types";
+import { SearchX, Inbox } from "lucide-react";
 
 interface PagedResponse<T> {
   data: T[];
@@ -21,8 +28,12 @@ interface Filters {
   status: string;
 }
 
-// Fetch the full list (cached/tagged), then filter in JS.
-async function getJobs(filters: Filters): Promise<JobListing[]> {
+interface JobsResult {
+  jobs: JobListing[];
+  databaseEmpty: boolean; // true when the source had zero jobs before filtering
+}
+
+async function getJobs(filters: Filters): Promise<JobsResult> {
   const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/Jobs`, {
     next: { tags: ["jobs"] },
   });
@@ -31,9 +42,13 @@ async function getJobs(filters: Filters): Promise<JobListing[]> {
   }
 
   const json: PagedResponse<JobListing> = await res.json();
-  let jobs = json.data;
+  const all = json.data;
 
-  // Keyword: match title or company, case-insensitive.
+  // Whether the database itself is empty is decided BEFORE any filtering.
+  const databaseEmpty = all.length === 0;
+
+  let jobs = all;
+
   if (filters.q) {
     const q = filters.q.toLowerCase();
     jobs = jobs.filter(
@@ -42,19 +57,15 @@ async function getJobs(filters: Filters): Promise<JobListing[]> {
         j.companyName.toLowerCase().includes(q)
     );
   }
-
-  // Location: case-insensitive substring.
   if (filters.location) {
     const loc = filters.location.toLowerCase();
     jobs = jobs.filter((j) => j.location.toLowerCase().includes(loc));
   }
-
-  // Status: "open" keeps only non-closed jobs; "all" keeps everything.
   if (filters.status === "open") {
     jobs = jobs.filter((j) => j.status !== "Closed");
   }
 
-  return jobs;
+  return { jobs, databaseEmpty };
 }
 
 interface Props {
@@ -70,7 +81,10 @@ export default async function JobsPage({ searchParams }: Props) {
     status: params.status ?? "all",
   };
 
-  const jobs = await getJobs(filters);
+  const hasActiveFilters =
+    !!filters.q || !!filters.location || filters.status === "open";
+
+  const { jobs, databaseEmpty } = await getJobs(filters);
 
   return (
     <div>
@@ -83,21 +97,56 @@ export default async function JobsPage({ searchParams }: Props) {
         </p>
       </div>
 
-      {/* URL-driven filters. */}
       <JobFilters />
 
       {jobs.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-zinc-300 p-12 text-center dark:border-zinc-700">
-          <p className="text-zinc-500 dark:text-zinc-400">
-            No positions match your filters. Try clearing them.
-          </p>
-        </div>
+        databaseEmpty ? (
+          // STATE 1 — nothing in the database. No action; the user cannot fix it.
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-zinc-300 p-12 text-center dark:border-zinc-700">
+            <Inbox className="h-8 w-8 text-zinc-400" />
+            <p className="text-zinc-600 dark:text-zinc-300">
+              No jobs are currently listed.
+            </p>
+            <p className="text-sm text-zinc-400 dark:text-zinc-500">
+              Please check back soon.
+            </p>
+          </div>
+        ) : (
+          // STATE 2 — filters removed everything. Offer a way to clear them.
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-zinc-300 p-12 text-center dark:border-zinc-700">
+            <SearchX className="h-8 w-8 text-zinc-400" />
+            <p className="text-zinc-600 dark:text-zinc-300">
+              No jobs match your search.
+            </p>
+            {/* Filter summary so the user sees what they searched for. */}
+            <p className="text-sm text-zinc-400 dark:text-zinc-500">
+              {[
+                filters.q && `keyword "${filters.q}"`,
+                filters.location && `location "${filters.location}"`,
+                filters.status === "open" && "open roles only",
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+            <div className="mt-2">
+              <ClearFiltersButton />
+            </div>
+          </div>
+        )
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {jobs.map((job) => (
             <JobLinkCard key={job.id} job={job} />
           ))}
         </div>
+      )}
+
+      {/* hasActiveFilters is computed for the summary above; referenced here to
+          keep the value meaningful even when the grid renders. */}
+      {hasActiveFilters && jobs.length > 0 && (
+        <p className="mt-6 text-xs text-zinc-400 dark:text-zinc-500">
+          Filters active — <span className="font-medium">{jobs.length}</span> shown.
+        </p>
       )}
     </div>
   );

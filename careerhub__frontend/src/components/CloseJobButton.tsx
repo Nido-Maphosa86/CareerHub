@@ -1,16 +1,35 @@
 // src/components/CloseJobButton.tsx
-// Assignment 2.2 — Part 6: the client button that triggers the close action.
+// Assignment 2.2 — close action. Assignment 3.1 — Part 4a: add an AlertDialog
+// confirmation and replace inline banners with toasts.
 //
-// "use client" because it uses the useActionState hook and renders an
-// interactive form. useActionState wires a Server Action to a <form>: it gives
-// back the latest returned state, a formAction to put on the form, and an
-// isPending flag that is true while the action is in flight.
+// THE PORTAL PROBLEM. AlertDialogContent renders in a Radix portal at the end of
+// <body> — OUTSIDE this component's <form>. So a <button type="submit"> placed in
+// AlertDialogAction would not belong to any form and would submit nothing. The
+// old version relied on a form submit to fire the Server Action; that no longer
+// works once the confirm button lives in the portal.
+//
+// THE FIX (useTransition approach). Keep the existing Server Action, but stop
+// driving it with a form submit. Instead call it programmatically from the
+// confirm button's onClick, wrapped in startTransition so React tracks the
+// pending state. The dialog open state is local useState. On the result we fire
+// a success or error toast — no inline banners.
 
 "use client";
 
-import { useActionState } from "react";
-import { closeJobListing, type CloseJobState } from "@/app/actions/closeJob";
-import { CheckCircle2 } from "lucide-react";
+import { useState, useTransition } from "react";
+import { closeJobListing } from "@/app/actions/closeJob";
+import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 
 interface Props {
   jobId: string;
@@ -18,48 +37,69 @@ interface Props {
 }
 
 export function CloseJobButton({ jobId, currentStatus }: Props) {
-  // Hooks must run unconditionally and in the same order every render, so the
-  // hook call comes before any early return.
-  // null is the initial state (matches the action's CloseJobState union).
-  const [state, formAction, isPending] = useActionState<CloseJobState, FormData>(
-    closeJobListing,
-    null
-  );
+  const [open, setOpen] = useState(false);
+  const [isPending, startTransition] = useTransition();
 
   // Already-closed jobs show nothing in the Action column.
   if (currentStatus === "Closed") {
     return null;
   }
 
-  // After a successful close, replace the button with a confirmation.
-  if (state?.status === "success") {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-lime-600 dark:text-lime-400">
-        <CheckCircle2 className="h-3.5 w-3.5" />
-        Closed “{state.jobTitle}”
-      </span>
-    );
+  function handleConfirm() {
+    // Build the FormData the Server Action expects, then call it directly.
+    // startTransition keeps isPending true while the server work runs.
+    startTransition(async () => {
+      const formData = new FormData();
+      formData.set("jobId", jobId);
+
+      const result = await closeJobListing(null, formData);
+
+      if (result?.status === "success") {
+        toast.success(`Listing closed: ${result.jobTitle}`);
+        setOpen(false);
+      } else {
+        toast.error(result?.message ?? "Could not close the listing.");
+        // Keep the dialog open so the employer can retry or cancel.
+      }
+    });
   }
 
   return (
-    <form action={formAction} className="flex flex-col items-start gap-1">
-      {/* The action reads jobId from the form data. */}
-      <input type="hidden" name="jobId" value={jobId} />
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger asChild>
+        <button
+          type="button"
+          className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs font-semibold text-zinc-700 transition-colors hover:border-red-400 hover:text-red-600 dark:border-zinc-700 dark:text-zinc-200 dark:hover:border-red-500 dark:hover:text-red-400"
+        >
+          Close
+        </button>
+      </AlertDialogTrigger>
 
-      <button
-        type="submit"
-        disabled={isPending}
-        className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs font-semibold text-zinc-700 transition-colors hover:border-red-400 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:border-red-500 dark:hover:text-red-400"
-      >
-        {isPending ? "Closing…" : "Close"}
-      </button>
-
-      {/* On error, show the message and keep the button active for retry. */}
-      {state?.status === "error" && (
-        <span className="text-xs text-red-600 dark:text-red-400">
-          {state.message}
-        </span>
-      )}
-    </form>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Close this listing?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This listing will be marked as closed and removed from the public jobs
+            board. This cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          {/* Cancel just closes the dialog — the listing is untouched. */}
+          <AlertDialogCancel disabled={isPending}>Keep listing</AlertDialogCancel>
+          {/* Confirm calls the Server Action via onClick (not a submit).
+              onSelect preventDefault stops Radix from auto-closing so the
+              dialog stays open if the action errors. */}
+          <AlertDialogAction
+            onClick={(e) => {
+              e.preventDefault();
+              handleConfirm();
+            }}
+            disabled={isPending}
+          >
+            {isPending ? "Closing…" : "Close listing"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
