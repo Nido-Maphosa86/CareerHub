@@ -7,14 +7,11 @@
 // The server does the data fetching; the client does the form state, validation,
 // and mutation. Each does exactly what it is designed for.
 
-
-//job details page
-//fetches the job and reads the session
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { JobListing } from "@/types";
 import { JobStatusBadge } from "@/components/JobStatusBadge";
-import { ApplyPanel } from "@/components/ApplyPanel";
+import { ApplicationWizard } from "@/components/ApplicationWizard";
 import { auth } from "@/auth";
 import { ArrowLeft, MapPin, Lock, ShieldAlert } from "lucide-react";
 
@@ -128,7 +125,8 @@ export default async function JobDetailPage({ params }: Props) {
             </div>
           </div>
         ) : !isSignedIn ? (
-          // Signed out — show the form but note that signing in is required.
+          // Signed out — show the wizard but note that signing in is required.
+          // The wizard itself blocks advancing past step 1 until signed in.
           <div>
             <div className="mb-4 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-300">
               You must be signed in to apply.{" "}
@@ -139,11 +137,19 @@ export default async function JobDetailPage({ params }: Props) {
                 Sign in here.
               </Link>
             </div>
-            <ApplyPanel listingId={job.id} jobTitle={job.title} />
+            <ApplicationWizard
+              jobId={job.id}
+              jobTitle={job.title}
+              isCandidate={false}
+            />
           </div>
         ) : (
-          // Candidate — the form renders normally.
-          <ApplyPanel listingId={job.id} jobTitle={job.title} />
+          // Candidate — the wizard renders normally.
+          <ApplicationWizard
+            jobId={job.id}
+            jobTitle={job.title}
+            isCandidate={true}
+          />
         )}
       </div>
     </div>
