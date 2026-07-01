@@ -16,6 +16,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { submitApplication } from "@/lib/api";
 import { ApplicationRequest } from "@/types";
@@ -83,13 +84,19 @@ const emptyDefaults: WizardData = {
 interface Props {
   jobId: string;
   jobTitle: string;
-  isCandidate: boolean; // from the Auth.js session on the server page
 }
 
-export function ApplicationWizard({ jobId, jobTitle, isCandidate }: Props) {
+export function ApplicationWizard({ jobId, jobTitle }: Props) {
   const storageKey = `${STORAGE_PREFIX}${jobId}`;
   const queryClient = useQueryClient();
   const { token } = useAuth();
+
+  // Assignment 3.2: candidate status is read from the Auth.js session here in
+  // the component (via useSession) instead of via a prop, so the auth gate can
+  // be exercised in tests by supplying a fake session. A null session (signed
+  // out) is not a candidate.
+  const { data: session } = useSession();
+  const isCandidate = session?.user?.role === "candidate";
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [draftRestored, setDraftRestored] = useState(false);
@@ -269,6 +276,9 @@ export function ApplicationWizard({ jobId, jobTitle, isCandidate }: Props) {
       {/* ---- STEP 1: Your Details ---- */}
       {step === 1 && (
         <div className="space-y-4">
+          <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
+            Your Details
+          </h2>
           <div>
             <label htmlFor="fullName" className={labelBase}>Full name</label>
             <input id="fullName" {...register("fullName")} className={cn(inputBase, borderFor(!!errors.fullName))} />
@@ -302,6 +312,9 @@ export function ApplicationWizard({ jobId, jobTitle, isCandidate }: Props) {
       {/* ---- STEP 2: Your Application ---- */}
       {step === 2 && (
         <div className="space-y-4">
+          <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
+            Your Application
+          </h2>
           <div>
             <label htmlFor="coverLetter" className={labelBase}>
               Cover letter <span className="text-zinc-400">(optional)</span>
@@ -332,6 +345,9 @@ export function ApplicationWizard({ jobId, jobTitle, isCandidate }: Props) {
       {/* ---- STEP 3: Review & Submit ---- */}
       {step === 3 && (
         <div className="space-y-3">
+          <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
+            Review &amp; Submit
+          </h2>
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
             Please review your application before submitting.
           </p>
