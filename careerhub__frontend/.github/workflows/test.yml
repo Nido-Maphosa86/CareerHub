@@ -1,0 +1,34 @@
+# .github/workflows/test.yml
+# Assignment 3.2 — Part 5: run the CareerHub frontend tests on every push/PR.
+# Place this at the REPOSITORY ROOT (not inside the client folder).
+
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        # All run steps execute inside the client directory.
+        working-directory: careerhub__frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          # Path is relative to the repo root.
+          cache-dependency-path: careerhub__frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm run test:run

@@ -140,7 +140,6 @@ export default async function JobDetailPage({ params }: Props) {
             <ApplicationWizard
               jobId={job.id}
               jobTitle={job.title}
-              isCandidate={false}
             />
           </div>
         ) : (
@@ -148,7 +147,6 @@ export default async function JobDetailPage({ params }: Props) {
           <ApplicationWizard
             jobId={job.id}
             jobTitle={job.title}
-            isCandidate={true}
           />
         )}
       </div>
