@@ -1,148 +1,261 @@
-# Assignment 3.1 — CareerHub Rich UI & Form Patterns
+# Assignment 3.3 — CareerHub Performance & SEO
 
-This project includes toast messages, a multi-step application form with auto-save (draft), a confirmation dialog for risky actions, loading skeletons, and two different empty states.
+This assignment improves speed and SEO. It adds metadata, Open Graph tags, image optimisation using `next/image`, and code splitting using dynamic import.
 
 ---
 
 ## Part 1 — Written Decisions
 
-### 1. Draft persistence strategy
+### Question 1 — Image audit
 
-**Storage key.**
-The key used is `careerhub-application-${jobId}`. It is linked to a specific job because a draft belongs to one application only. This prevents drafts from mixing.
+| Location             | Source                          | Above fold? | Use next/image?      |
+| -------------------- | ------------------------------- | ----------- | -------------------- |
+| Home page hero image | `/public/hero-illustration.svg` | Yes         | Yes — main LCP image |
+| Job cards            | No image                        | n/a         | n/a                  |
+| Job detail page      | No image                        | n/a         | n/a                  |
+| Dashboard            | No image                        | n/a         | n/a                  |
+| Navbar logo          | Inline SVG letter "C"           | Yes         | No — just an icon    |
 
-*Two jobs at once:*
-If a user opens job A and job B, each job has its own draft (`careerhub-application-A` and `careerhub-application-B`). Typing in one will not affect the other. If there was only one key, one draft would overwrite the other.
+Right now, there are no external images. The API does not return company logos — only text (`companyName`).
 
-*Different device:*
-`localStorage` only works on one browser and device. A draft saved on a laptop will not appear on a phone. This is expected because draft saving is only for preventing data loss on the same device, not for syncing across devices.
+If logos are added later, they should be used in job cards and handled with `next/image` using remote settings.
 
-**When the draft is cleared.**
-The draft is deleted in these cases:
+**Most important image for `priority`:**
+The hero image on the home page.
 
-1. **After successful submission** — the draft becomes a real application, so keeping it could cause duplicate submissions.
-2. **When the user clicks "Discard draft"** — the user chooses to delete it.
-3. **Not cleared when leaving the page** — this is intentional so the draft is not lost.
+Reason:
 
-**Which fields are stored.**
-All fields are stored: name, email, phone, cover letter, LinkedIn URL, and referral source. These are safe because they are not sensitive. No passwords or tokens are saved.
-
----
-
-### 2. The skeleton loader contract
-
-**Matching size and layout.**
-The skeleton must look like the real job card. It should have the same shape, spacing, and layout so that when the real data loads, nothing jumps or shifts.
-
-**3 jobs but 6 skeletons.**
-If you show 6 skeletons but only 3 real jobs load, the page shrinks, which can confuse users. However, the system does not know the number of jobs before loading, so a fixed number (6) is used as a design choice.
-
-**Paired component pattern.**
-A skeleton must match its real component exactly. For example, `JobCardSkeleton` must match `JobLinkCard`. If they do not match, the layout will shift when loading finishes, which looks bad.
+* It is the biggest visible element when the page loads
+* Without `priority`, it loads slowly (lazy loading)
+* With `priority`, it loads earlier using preload
+  → This improves LCP (Largest Contentful Paint)
 
 ---
 
-### 3. AlertDialog vs other options
+### Question 2 — ApplicationWizard loading
 
-**Closing a job → AlertDialog.**
-Closing a job is permanent. The confirmation dialog makes sure the user really wants to do it.
+**a. Should `ssr: false` be used?**
+Yes.
 
-**Discarding a draft → AlertDialog.**
-Deleting a draft cannot be undone, so confirmation is needed.
+The wizard uses:
 
-(A normal dialog is for simple actions. Inline confirmation is for small actions. These are not suitable for permanent actions.)
+* `useSession()` (client-only)
+* `localStorage` (browser-only)
+* React hooks like `useTransition`
 
-**Problem with Server Action.**
-The dialog is rendered outside the form (in a portal). This means a submit button inside it does not work because it is not connected to the form.
-
-**Solution: `useTransition`.**
-Instead of using form submission, the action is called directly in JavaScript using `onClick`. The form data is created manually and passed to the server action. `useTransition` is used to handle loading state.
-
-This works because it does not depend on the form structure.
+These do not work on the server. Using SSR would cause errors.
 
 ---
 
-### 4. Empty state types
+**b. Does loading it early affect users who cannot apply?**
+Yes.
 
-**Why two types.**
-There are two situations:
+Users like employers or logged-out users:
 
-* No jobs exist at all
-* Jobs exist, but filters removed them
+* only want to read job details
+* do not need the form
 
-These look the same (no results), but they mean different things.
+If the wizard loads early:
 
-**Where the check happens.**
-The server checks if there are jobs before filtering. It sends:
+* extra JavaScript is downloaded
+* page becomes slower (TTI and TBT increase)
 
-* the filtered jobs
-* a flag (`databaseEmpty`)
+So, it should load only when needed.
 
-The UI then decides which message to show.
+---
+
+**c. Why do tests still pass after dynamic import?**
+Because tests import the component directly:
+
+```ts
+import { ApplicationWizard } from "@/components/ApplicationWizard";
+```
+
+This means:
+
+* tests do not use `dynamic()`
+* they load the component normally
+
+So nothing changes for testing.
+
+---
+
+### Question 3 — Static vs dynamic metadata
+
+| Page         | Type                         | Reason                       |
+| ------------ | ---------------------------- | ---------------------------- |
+| `/` (home)   | Static                       | Same for all users           |
+| `/jobs`      | Static                       | Page meaning does not change |
+| `/jobs/[id]` | Dynamic (`generateMetadata`) | Depends on job data          |
+
+Job detail pages need dynamic metadata because:
+
+* title
+* description
+* Open Graph data
+  all depend on the job from the API
+
+---
+
+**Request deduplication.**
+Both the page and `generateMetadata` call `getJob(id)`.
+
+Next.js will:
+
+* detect same request (same URL + options)
+* send only one network request
+* reuse the result
+
+This only works if:
+
+* both use the same function or same request setup
+
+If they differ, two requests will be made.
+
+---
+
+### Question 4 — Lighthouse baseline
+
+
+```
+HOME PAGE
+  Performance:  ___
+  LCP:          ___ ms
+  CLS:          ___
+  INP:          ___
+  SEO:          ___
+
+JOB DETAIL PAGE (/jobs/[id])
+  Performance:  ___
+  LCP:          ___ ms
+  CLS:          ___
+  INP:          ___
+  SEO:          ___
+  SEO flags:    ___
+```
 
 ---
 
 ## README Updates
 
-### Draft storage key decision
+### Before/after Lighthouse results
 
-The key uses the job ID so each job has its own draft. This prevents overwriting when applying to multiple jobs.
 
-If the job changes later, the draft is still valid because it only stores user answers, not job data. The user can review before submitting.
 
----
-
-### Solving AlertDialog with a Server Action
-
-The problem is that the dialog is outside the form, so submit does not work.
-
-The solution is to call the server action directly using `onClick` and `useTransition`. This avoids relying on form submission.
+| Metric            | Before | After |
+| ----------------- | ------ | ----- |
+| Performance score | ___    | ___   |
+| LCP               | ___    | ___   |
+| CLS               | ___    | ___   |
+| INP               | ___    | ___   |
+| SEO score         | ___    | ___   |
 
 ---
 
-### The Back button and validation
+**Most important improvement:**
+The `priority` prop on the hero image.
 
-The Back button does not validate.
+* It improves LCP directly
+* loads the image earlier
 
-Back means the user wants to go back, not confirm data. If validation was required, the user could get stuck.
+Dynamic import helps:
 
-Only the Next button should validate.
+* reduce JavaScript load
+* improve TTI and TBT
 
----
+Metadata helps:
 
-### Skeleton count justification
-
-Six skeletons are shown because:
-
-* Too few looks empty
-* Too many looks misleading
-
-Six gives a good balance and fills the screen nicely.
+* improve SEO score
 
 ---
 
-### Empty state explanation
+### Image audit summary
 
-The server checks if there are jobs before filtering.
+There is only one image:
 
-If no jobs exist → show "No jobs available"
-If jobs exist but filters remove them → show "No jobs match your search"
+* home page hero image
 
-This must be done on the server because only the server knows the full list.
+It uses `next/image` with `priority` because it is above the fold.
+
+There are no:
+
+* company logos
+* profile images
+
+If added later, they should use `next/image` with remote config.
+
+Inline SVG icons were not changed because:
+
+* they are not normal images
+* `next/image` is not needed
+
+---
+
+### Deduplication explanation
+
+When both metadata and page call `getJob(id)`:
+
+* Next.js sees same request
+* sends only one API call
+* shares result
+
+This works only if:
+
+* URL is the same
+* fetch options are the same
+
+It breaks if:
+
+* URL changes
+* headers change
+* cache options change
+
+---
+
+### One metric that did not change
+
+CLS may not change in development mode.
+
+Reason:
+
+* dev mode does not behave like production
+
+In production:
+
+* layout shifts may happen if skeleton size is wrong
+
+To fix:
+
+* match skeleton size exactly
+  or
+* use `min-height`
+
+A CDN could also help reduce loading time.
+
+---
+
+### Bundle analyzer
+
+Run:
+
+```bash id="0b0b9e"
+npm run analyze
+```
+
+You should see:
+
+* `ApplicationWizard` in a separate bundle
 
 ---
 
 ## Gate
 
-The project must build with no errors.
-
-Commands used:
-
 * `npx tsc --noEmit` → 0 errors
-* `next build` → success
+* `npm run test:run` → all tests passed
+* `npm run build` → successful build
 
-(Some warnings may appear, but they are not errors.)
+Paste output:
 
 ```
-PASTE THE OUTPUT OF: npm run build
+PASTE: npm run build output
 ```
