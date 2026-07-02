@@ -26,14 +26,13 @@
 //    height (h-96) so the layout does not shift when the bundle loads.
 
 import type { Metadata } from "next";
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { JobListing } from "@/types";
 import { JobStatusBadge } from "@/components/JobStatusBadge";
 import { auth } from "@/auth";
 import { ArrowLeft, MapPin, Lock, ShieldAlert } from "lucide-react";
-
+import { ApplicationWizardClient } from "@/components/ApplicationWizardClient";
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -92,26 +91,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 // Named export requires the .then(mod => ...) pattern — dynamic() expects a
 // default export from the imported module, so we pull the named export out.
-const ApplicationWizard = dynamic(
-  () =>
-    import("@/components/ApplicationWizard").then((mod) => ({
-      default: mod.ApplicationWizard,
-    })),
-  {
-    // ssr: false because the wizard uses useSession(), localStorage, and other
-    // browser-only APIs. Rendering it server-side would throw at runtime.
-    ssr: false,
 
-    // The loading skeleton reserves h-96 so the page layout does not jump when
-    // the wizard bundle loads. This directly targets CLS (Cumulative Layout Shift).
-    loading: () => (
-      <div
-        className="h-96 w-full animate-pulse rounded-xl border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900"
-        aria-label="Loading application form"
-      />
-    ),
-  }
-);
 
 // ── Page component ────────────────────────────────────────────────────────────
 
@@ -225,12 +205,12 @@ export default async function JobDetailPage({ params }: Props) {
             {/* Dynamic import means the wizard bundle only downloads after the
                 job details have painted — not-signed-in users see the details
                 immediately even if the wizard chunk is still loading. */}
-            <ApplicationWizard jobId={job.id} jobTitle={job.title} />
+            <ApplicationWizardClient jobId={job.id} jobTitle={job.title} />
           </div>
         ) : (
           // Authenticated candidate — the wizard renders normally after the
           // dynamic chunk loads.
-          <ApplicationWizard jobId={job.id} jobTitle={job.title} />
+          <ApplicationWizardClient jobId={job.id} jobTitle={job.title} />
         )}
       </div>
     </div>
