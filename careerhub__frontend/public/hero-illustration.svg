@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="400" viewBox="0 0 800 400" fill="none">
+  <rect width="800" height="400" fill="#0a0a0a"/>
+  <pattern id="dots" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse">
+    <circle cx="2" cy="2" r="1.5" fill="#27272a" opacity="0.8"/>
+  </pattern>
+  <rect width="800" height="400" fill="url(#dots)"/>
+  <rect x="200" y="80" width="400" height="240" rx="16" fill="#18181b" stroke="#27272a" stroke-width="1.5"/>
+  <rect x="200" y="80" width="400" height="4" rx="2" fill="#a3e635"/>
+  <rect x="232" y="120" width="80" height="10" rx="4" fill="#3f3f46"/>
+  <rect x="232" y="148" width="260" height="18" rx="4" fill="#52525b"/>
+  <rect x="232" y="178" width="180" height="12" rx="4" fill="#3f3f46"/>
+  <rect x="232" y="200" width="220" height="12" rx="4" fill="#3f3f46"/>
+  <rect x="232" y="264" width="72" height="24" rx="12" fill="#1a2e05"/>
+  <rect x="233" y="265" width="70" height="22" rx="11" stroke="#4d7c0f" stroke-width="1"/>
+  <rect x="248" y="273" width="42" height="7" rx="3" fill="#84cc16"/>
+  <rect x="480" y="260" width="88" height="32" rx="8" fill="#a3e635"/>
+  <rect x="497" y="271" width="54" height="10" rx="4" fill="#1a2e05"/>
+</svg>
