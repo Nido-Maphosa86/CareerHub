@@ -1,6 +1,7 @@
 // src/app/jobs/page.tsx
 // Assignment 2.3 — Part 6: URL-driven filters.
 // Assignment 3.1 — Part 5: two distinct empty states.
+// Assignment 3.3 — Part 2: static metadata for SEO.
 //
 // The page reads q, location, status from searchParams and filters in JS after
 // a cached fetch. It now distinguishes TWO empty states:
@@ -12,12 +13,31 @@
 // before filtering. The two states offer different actions: State 1 offers
 // nothing (the user cannot conjure jobs); State 2 offers "Clear all filters".
 
+import type { Metadata } from "next";
 import { JobLinkCard } from "@/components/JobLinkCard";
 import { JobFilters } from "@/components/JobFilters";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { JobListing } from "@/types";
 import { SearchX, Inbox } from "lucide-react";
 
+// ── Static metadata (Part 2, Step 1) ─────────────────────────────────────────
+// Static is correct here: the listing page title and description do not change
+// per-request. Individual job titles live on /jobs/[id] and use generateMetadata.
+// The URL-driven filters (?q=...) change what is shown but not the page's
+// identity for search engines — the canonical page is always "Browse Jobs".
+export const metadata: Metadata = {
+  title: "Browse Jobs",
+  description:
+    "Browse all open positions on CareerHub. Filter by keyword, location, or job type and apply in minutes.",
+  openGraph: {
+    title: "Browse Jobs | CareerHub",
+    description:
+      "Browse all open positions on CareerHub. Filter by keyword, location, or job type and apply in minutes.",
+    type: "website",
+  },
+};
+
+// ── Data fetching ─────────────────────────────────────────────────────────────
 interface PagedResponse<T> {
   data: T[];
 }
