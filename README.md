@@ -1,180 +1,239 @@
-# Assignment 3.2 — CareerHub Testing
+# CareerHub — Full Setup Guide
 
-This project tests how the application works from the user’s point of view. It tests the wizard steps, login checks, review page, submit process, and closing a job. MSW is used to handle fake API requests, and GitHub Actions runs the tests automatically.
+CareerHub is a job board built as two separate applications that run together:
 
-> **One change from 3.1.**
-> The wizard now gets the user status using `useSession()` inside the component instead of receiving it as a prop. This allows testing login behaviour using a fake session.
+- **CareerHub.Api** — a .NET 10 REST API backed by PostgreSQL (handles jobs, applications, and auth).
+- **careerhub__frontend** — a Next.js 15 (App Router, TypeScript) web app that people actually use in the browser.
 
----
+This guide takes you from nothing installed to a working app in the browser. Follow it top to
+bottom — every command is here, with no steps left to guesswork.
 
-## Part 1 — Written Decisions
-
-### Question 1 — What is worth testing?
-
-**Category A — important behaviours.**
-
-1. **Next button blocked when required fields are empty.**
-   If this breaks, users can skip required fields and submit incomplete applications.
-
-2. **Login check stops signed-out users after step 1.**
-   If this breaks, users can complete everything but fail only at the end, losing their work.
-
-3. **Back button keeps previous answers.**
-   Users should not lose their data when moving between steps.
-
-4. **Review page shows all values, including "Not provided".**
-   Users must see everything before submitting.
-
-5. **Submit behaviour (success vs error).**
-
-* On success → form resets
-* On error → values stay
-  Both are important and easy to break.
+> **Time to complete:** about five minutes once the prerequisites are installed.
 
 ---
 
-**Category B — not worth testing.**
+## 1. Prerequisites
 
-1. **Exact styles (like colours or Tailwind classes).**
-   Users do not depend on colours. Testing this makes tests fragile.
+Install these three tools first. Version-check commands are included so you can confirm each one.
 
-2. **Number of HTML elements (like divs).**
-   Users do not see this. It only tests code structure, not behaviour.
+| Tool | Why it is needed | Check it is installed |
+|---|---|---|
+| **.NET 10 SDK** | Runs the backend API | `dotnet --version` (should print 10.x) |
+| **Node.js 20+** | Runs the frontend | `node --version` (should print v20 or higher) |
+| **Docker Desktop** | Runs the PostgreSQL database | `docker --version`, then open the app |
 
----
-
-**Category C — real vs mocked localStorage.**
-I use the real jsdom `localStorage`.
-
-This allows tests to:
-
-* Save a draft
-* Reload and check if it is restored
-* Submit or discard and check if it is removed
-
-This proves the feature actually works.
-
-A mock (`vi.spyOn`) would only check if a function was called, not if the data really saves and loads.
+**Docker Desktop must be running** before you start anything. Open it and wait until its status
+indicator is green ("Engine running"). The backend cannot connect to the database if Docker is off.
 
 ---
 
-### Question 2 — Mocking the session
+## 2. Clone  repositories
 
-**Approach 1 — mock the hook (`vi.mock`).**
-Replace `useSession()` with a fake version that returns what the test needs.
-
-**Approach 2 — real provider with fake session.**
-Use the real `SessionProvider` but give it fake data.
-
-**Chosen approach:**
-Approach 1, because it is simpler and focuses only on what matters — the session value.
-
----
-
-### Question 3 — MSW scope
-
-Network requests used:
-
-| When         | Method | URL                        | Response           |
-| ------------ | ------ | -------------------------- | ------------------ |
-| On load      | none   | —                          | No request happens |
-| On submit    | POST   | `/applications/:listingId` | returns success    |
-| After submit | GET    | `/Jobs`                    | returns empty list |
-
-**What MSW cannot test:**
-
-* Step navigation
-* Form validation
-* Login check
-* Toast messages
-* localStorage
-
-These do not use HTTP, so MSW cannot handle them.
-
----
-
-### Question 4 — Test naming
-
-* **a)** "currentStep equals schedule" → **implementation**
-  Better: "moves to schedule step after completing step 1"
-
-* **b)** "shows Schedule heading" → **behaviour** (keep)
-
-* **c)** "calls localStorage.setItem" → **implementation**
-  Better: "keeps progress when user leaves and returns"
-
-* **d)** "draft is available when user returns" → **behaviour** (keep)
-
-* **e)** "renders 3 divs" → **implementation**
-  Better: "shows loading placeholders while loading"
-
----
-
-## README Updates
-
-### 1. What makes a test important
-
-Important tests are ones where a bug would:
-
-* lose user data
-* allow bad submissions
-
-These include validation, login check, saving progress, review page, and submit behaviour.
-
-I did not test styles or layout because they do not affect how the app works.
-
----
-
-### 2. Session mocking approach
-
-I used `vi.mock("next-auth/react")` to control what `useSession()` returns.
-
-This allows testing:
-
-* logged-in users
-* logged-out users
-
-It does not test real authentication (like login or cookies), only how the component reacts.
-
----
-
-### 3. localStorage choice
-
-I used real jsdom `localStorage`.
-
-This proves:
-
-* drafts save correctly
-* drafts restore correctly
-* drafts are removed when needed
-
-It does not test real browser limits (like storage size or private mode).
-
----
-
-### 4. One surprising test
-
-The review test failed because "LinkedIn" appeared twice:
-
-* once as a label
-* once as a value
-
-This was not a bug. The test was wrong.
-
-The fix was to check that at least one match exists instead of expecting only one.
-
-This helped me understand the UI better.
-
----
-
-## Running the tests
+Open a terminal in the folder where you keep your projects and clone both repos side by side:
 
 ```bash
-npm test         # run in watch mode
-npm run test:run # run once (used in CI)
+git clone https://github.com/Nido-Maphosa86/CareerHub.git
 ```
 
-## Gate
+The frontend lives inside that same repository, in the `careerhub__frontend` folder, so a single
+clone gives you both the API and the web app:
 
-* `npx tsc --noEmit` → 0 errors
-* `npm run test:run` → all tests passed
+```
+CareerHub/
+├── CareerHub.Api/          ← the .NET backend
+└── careerhub__frontend/    ← the Next.js frontend
+```
+
+---
+
+## 3. Start the database (Docker)
+
+The backend needs a PostgreSQL database. Start it in a container.
+
+**First time only** — create the container:
+
+```bash
+docker run -d --name careerhub-postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=CareerHub -p 5432:5432 postgres:16
+```
+
+**Every time after that** — just start the existing container:
+
+```bash
+docker start careerhub-postgres
+```
+
+Confirm it is running:
+
+```bash
+docker ps
+```
+
+You should see `careerhub-postgres` listed with port `5432`.
+
+---
+
+## 4. Start the backend (CareerHub.Api)
+
+Open a terminal in the API folder:
+
+```bash
+cd CareerHub/CareerHub.Api
+```
+
+### 4a. Backend environment variables
+
+The API reads its secrets from environment variables / user secrets, not from committed files. Set
+the JWT signing key (used to issue login tokens). From the `CareerHub.Api` folder:
+
+```bash
+dotnet user-secrets set "Jwt:Key" "REPLACE_WITH_ANY_LONG_RANDOM_STRING_AT_LEAST_32_CHARS"
+```
+
+The database connection string already points at the Docker container above
+(`Host=localhost;Port=5432;Database=CareerHub;Username=postgres;Password=postgres`). If your Postgres
+uses a different password, update it in `appsettings.Development.json`.
+
+### 4b. Create the database tables
+
+Apply the migrations once to build the schema:
+
+```bash
+dotnet ef database update
+```
+
+> If `dotnet ef` is not recognised, install the tool once with:
+> `dotnet tool install --global dotnet-ef`
+
+### 4c. Run the API
+ 
+```bash
+cd CareerHub.Api
+dotnet run
+```
+
+Leave this terminal open. The API is now live at **http://localhost:5000**. You can confirm it by
+opening the API docs:
+
+```
+http://localhost:5000/openapi/v1.json
+```
+
+If that returns JSON, the backend is working.
+
+---
+
+## 5. Start the frontend (careerhub__frontend)
+
+Open a **second** terminal (leave the backend running in the first one):
+
+```bash
+cd CareerHub/careerhub__frontend
+```
+
+### 5a. Install dependencies
+
+```bash
+npm install
+```
+
+
+
+
+### 5c. Run the frontend
+
+```bash
+npm run dev
+```
+
+Open **http://localhost:3000** in your browser. The app is now running.
+
+---
+
+## 6. Logging in (test accounts)
+
+The app ships with four ready-made accounts for testing. Go to **http://localhost:3000/login** and
+use any of these — all share the password **`password123`**:
+
+| Username | Password | Role | Lands on |
+|---|---|---|---|
+| `employer1` | `password123` | Employer | Dashboard |
+| `employer2` | `password123` | Employer | Dashboard |
+| `alice` | `password123` | Candidate | Jobs |
+| `bob` | `password123` | Candidate | Jobs |
+
+- Sign in as **alice** to browse jobs and apply.
+- Sign in as **employer1** to manage listings from the dashboard.
+
+---
+
+## 7. Quick start (returning users)
+
+Once everything is installed and configured, the daily startup is just four steps:
+
+```bash
+# 1. Open Docker Desktop (wait for green)
+
+# 2. Start the database
+docker start careerhub-postgres
+
+# 3. Start the backend  (terminal 1)
+cd CareerHub/CareerHub.Api && dotnet run
+
+# 4. Start the frontend (terminal 2)
+cd CareerHub/careerhub__frontend && npm run dev
+```
+
+Then open **http://localhost:3000**.
+
+---
+
+## 8. Verifying it works
+
+- `http://localhost:3000` shows the CareerHub home page.
+- `http://localhost:3000/jobs` lists jobs pulled from the backend.
+- Signing in as `alice` and opening a job shows a working multi-step application form.
+- Signing in as `employer1` shows the dashboard with listing controls.
+
+### Run the tests (optional)
+
+From `careerhub__frontend`:
+
+```bash
+npm run test:run
+```
+
+All 13 tests should pass and the runner should exit on its own.
+
+---
+
+## 9. Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Backend crashes on startup, cannot connect to database | Docker or the Postgres container is not running | Open Docker Desktop, then `docker start careerhub-postgres` |
+| `dotnet ef` not recognised | EF Core tool not installed | `dotnet tool install --global dotnet-ef` |
+| Frontend loads but `/jobs` is empty or errors | Backend not running, or wrong `NEXT_PUBLIC_API_URL` | Confirm the backend is up at `http://localhost:5000` and the env value ends in `/api/v1` |
+| `Module not found` after cloning | Dependencies not installed | Run `npm install` inside `careerhub__frontend` |
+| Login always fails | `AUTH_SECRET` missing from `.env.local` | Generate one (section 5b) and restart `npm run dev` |
+| Port 3000 already in use | Another app is using it | Next.js will offer the next free port; use the URL it prints |
+| Solution file errors on the backend | `.slnx` corrupted (known on shared machines) | `del CareerHub.slnx`, then `dotnet new sln`, then `dotnet sln add` for both projects |
+
+---
+
+## 10. Project structure at a glance
+
+```
+CareerHub/
+├── CareerHub.Api/                 .NET 10 API
+│   ├── Controllers/               Jobs, Applications, Auth, Companies
+│   ├── Migrations/                EF Core database schema history
+│   └── appsettings.json           Config (connection string, etc.)
+│
+└── careerhub__frontend/           Next.js 15 web app
+    ├── src/app/                    Routes (home, jobs, dashboard, login)
+    ├── src/components/             UI (wizard, cards, dialogs, boundaries)
+    ├── src/lib/                    API client + typed error handling
+    └── src/test/                   Vitest + Testing Library test suite
+```
+
+That is everything needed to clone, configure, and run the full CareerHub stack.
