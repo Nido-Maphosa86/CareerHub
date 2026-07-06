@@ -80,18 +80,7 @@ Open a terminal in the API folder:
 cd CareerHub/CareerHub.Api
 ```
 
-### 4a. Backend environment variables
 
-The API reads its secrets from environment variables / user secrets, not from committed files. Set
-the JWT signing key (used to issue login tokens). From the `CareerHub.Api` folder:
-
-```bash
-dotnet user-secrets set "Jwt:Key" "REPLACE_WITH_ANY_LONG_RANDOM_STRING_AT_LEAST_32_CHARS"
-```
-
-The database connection string already points at the Docker container above
-(`Host=localhost;Port=5432;Database=CareerHub;Username=postgres;Password=postgres`). If your Postgres
-uses a different password, update it in `appsettings.Development.json`.
 
 ### 4b. Create the database tables
 
