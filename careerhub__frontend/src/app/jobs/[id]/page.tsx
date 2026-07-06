@@ -35,6 +35,8 @@ import { ArrowLeft, MapPin, Lock, ShieldAlert } from "lucide-react";
 import { ApplicationWizardClient } from "@/components/ApplicationWizardClient";
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+
+//build metadata based on the job data
 interface Props {
   params: Promise<{ id: string }>;
 }

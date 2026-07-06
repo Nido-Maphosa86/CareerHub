@@ -259,3 +259,9 @@ Paste output:
 ```
 PASTE: npm run build output
 ```
+
+
+summary
+Two goals: fast and findable.
+Findable means search engines like Google can read each page properly — a real title, a real description, and Open Graph tags so the page looks good when shared on WhatsApp or LinkedIn.
+Fast means real users get content on screen quicker — measured by three Core Web Vitals: LCP (how fast the biggest thing loads), CLS (whether the page jumps around while loading), and TTI (how quickly the page becomes interactive).

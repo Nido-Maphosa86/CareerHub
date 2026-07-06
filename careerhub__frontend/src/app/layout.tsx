@@ -23,6 +23,7 @@ import { Toaster } from "sonner";
 
 // ── Global metadata (Part 2, Step 1) ────────────────────────────────────────
 export const metadata: Metadata = {
+  //assingment3.3 each page can export its own title, which is combined with the template below.
   // template: applied to every page that exports its own title.
   // default: used when no page-level title is set (e.g. home page).
   title: {
