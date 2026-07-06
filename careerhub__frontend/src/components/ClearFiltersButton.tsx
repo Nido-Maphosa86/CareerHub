@@ -7,6 +7,9 @@
 
 "use client";
 
+//clear filter buttoon 
+//clicking the button resets all the filters to their default values
+//and shows the full list of jobs
 import { useQueryStates, parseAsString, parseAsStringEnum } from "nuqs";
 
 export function ClearFiltersButton() {

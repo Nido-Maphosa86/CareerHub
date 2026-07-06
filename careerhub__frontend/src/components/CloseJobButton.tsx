@@ -16,6 +16,7 @@
 
 "use client";
 
+//clicking the close button opens a confirmation dialog
 import { useState, useTransition } from "react";
 import { closeJobListing } from "@/app/actions/closeJob";
 import { toast } from "sonner";

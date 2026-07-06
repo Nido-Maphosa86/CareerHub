@@ -10,6 +10,9 @@
 // it caused a jump on swap; that drift is fixed here. If JobLinkCard's structure
 // changes, this file must change with it — that is the pairing contract.
 
+
+//paired with the real job card, 
+// so that when the skeleton is replaced with the real card, there is no layout shift
 function JobCardSkeleton() {
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">

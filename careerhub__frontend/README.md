@@ -146,3 +146,12 @@ Commands used:
 ```
 PASTE THE OUTPUT OF: npm run build
 ```
+
+
+//summarry
+
+Toasts replace clunky inline banners — feedback appears in the corner and disappears on its own.
+AlertDialog forces deliberate confirmation before permanent actions — the portal problem was solved with useTransition.
+The wizard guides candidates step by step — auto-saves every keystroke, restores on refresh, validates only the current step, shows a full review before submitting.
+The skeleton is paired with the real card — no layout shift when data arrives.
+Two distinct empty states tell the user the right thing — one for a genuinely empty database, one for a search with no results.

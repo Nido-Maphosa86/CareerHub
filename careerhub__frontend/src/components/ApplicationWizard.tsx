@@ -45,6 +45,8 @@ const HOW_HEARD = [
   "Other",
 ] as const;
 
+//all are validated by the zod schema,
+// but only the current step is validated on Next
 const schema = z
   .object({
     fullName: z.string().min(2, "Full name must be at least 2 characters"),
@@ -160,6 +162,8 @@ export function ApplicationWizard({ jobId, jobTitle, isCandidate }: Props) {
     },
   });
 
+  //uses trigger() for step by step validation
+  //step1 does compalin about step  validation
   // ---- Step navigation -----------------------------------------------
   async function handleNext() {
     if (step === 1) {

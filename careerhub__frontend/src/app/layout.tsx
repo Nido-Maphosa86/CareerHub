@@ -15,6 +15,10 @@ import { NavBar } from "@/components/NavBar";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Toaster } from "sonner";
 
+//added toaster to the layout so that it can be used anywhere in the app
+//toast is a notification that pops up on the screen to inform the user of something
+//listing close success/error messages, etc. It is a good way to inform the user of something without interrupting their workflow.
+
 export const metadata: Metadata = {
   title: "CareerHub — Find your next role",
   description: "Browse open positions and apply on CareerHub.",

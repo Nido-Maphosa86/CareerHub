@@ -9,6 +9,10 @@
 
 "use client";
 
+//Alert dialog
+//cannot be dismissed by clicking the overlay or pressing Escape by accident
+//..confirmation popup
+//forces useer to make a choice
 import * as React from "react";
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 import { cn } from "@/lib/utils";
