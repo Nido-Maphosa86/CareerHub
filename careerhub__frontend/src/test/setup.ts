@@ -12,8 +12,11 @@ import "@testing-library/jest-dom";
 import { server } from "./msw/server";
 import { beforeAll, afterEach, afterAll } from "vitest";
 
+//starts the fake network before all test
 beforeAll(() => server.listen({ onUnhandledRequest: "warn" }));
 
+//reset the network server after each test
+//clear localStorage after each test
 afterEach(() => {
   server.resetHandlers();
   localStorage.clear();

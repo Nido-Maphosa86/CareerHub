@@ -21,7 +21,8 @@ vi.mock("next/cache", () => ({
 const API = process.env.NEXT_PUBLIC_API_URL;
 
 describe("CloseJobButton", () => {
-  // Test 10
+
+  // Test 10 clicking Close opens the confirmation dialog
   it("opens the confirmation dialog when the close button is clicked", async () => {
     const user = userEvent.setup();
     renderWithProviders(<CloseJobButton jobId="job-1" currentStatus="Active" />);
@@ -36,7 +37,7 @@ describe("CloseJobButton", () => {
     expect(screen.getByText("Close this listing?")).toBeVisible();
   });
 
-  // Test 11
+  // Test 11 clicking Close then confirming actually calls the delete API
   it("calls the close API when the user confirms", async () => {
     let deleteCalled = false;
 

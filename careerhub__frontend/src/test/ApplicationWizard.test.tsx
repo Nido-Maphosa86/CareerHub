@@ -41,13 +41,13 @@ describe("ApplicationWizard smoke test", () => {
 
 // ---- Step navigation (Part 3) -----------------------------------------
 describe("ApplicationWizard — step navigation", () => {
-  // Test 1
+  // Test 1 heading shows on mount
   it("renders the step 1 heading on mount", () => {
     renderWithProviders(<ApplicationWizard {...props} />);
     expect(screen.getByRole("heading", { name: "Your Details" })).toBeVisible();
   });
 
-  // Test 2
+  // Test 2  clicking Next with empty fields shows errors and stays on step 1
   it("blocks advancement when required step 1 fields are empty", async () => {
     const user = userEvent.setup();
     renderWithProviders(<ApplicationWizard {...props} />);
@@ -61,7 +61,7 @@ describe("ApplicationWizard — step navigation", () => {
     expect(screen.getByRole("heading", { name: "Your Details" })).toBeVisible();
   });
 
-  // Test 3
+  // Test 3 filling step 1 and clicking Next advances to step 2
   it("advances to step 2 when step 1 required fields are filled", async () => {
     const user = userEvent.setup();
     renderWithProviders(<ApplicationWizard {...props} />);
@@ -73,7 +73,7 @@ describe("ApplicationWizard — step navigation", () => {
     expect(await screen.findByRole("heading", { name: "Your Application" })).toBeVisible();
   });
 
-  // Test 4
+  // Test 4 going Back keeps your step 1 answers (checked with getByDisplayValue)
   it("preserves step 1 values when Back is clicked", async () => {
     const user = userEvent.setup();
     renderWithProviders(<ApplicationWizard {...props} />);
@@ -94,7 +94,8 @@ describe("ApplicationWizard — step navigation", () => {
 
 // ---- Auth gate (Part 3) -----------------------------------------------
 describe("ApplicationWizard — auth gate", () => {
-  // Test 5
+
+  // Test 5 click Next, the sign-in message appears and step 2 does NOT
   it("shows the sign-in message and does not advance when the user is not authenticated", async () => {
     const user = userEvent.setup();
     renderWithProviders(<ApplicationWizard {...props} />, { session: null });
@@ -113,7 +114,7 @@ describe("ApplicationWizard — auth gate", () => {
     ).not.toBeInTheDocument();
   });
 
-  // Test 6
+  // Test 6  render as a candidate, click Next, step 2 appears
   it("advances normally when the user is authenticated as a candidate", async () => {
     const user = userEvent.setup();
     renderWithProviders(<ApplicationWizard {...props} />); // default candidate session
@@ -128,7 +129,8 @@ describe("ApplicationWizard — auth gate", () => {
 
 // ---- Review step (Part 3) ---------------------------------------------
 describe("ApplicationWizard — review step", () => {
-  // Test 7
+
+  // Test 7 fill everything, reach review, all values show, blank optionals show "Not provided"
   it("shows all entered values and 'Not provided' for blank optionals", async () => {
     const user = userEvent.setup();
     renderWithProviders(<ApplicationWizard {...props} />);
@@ -149,7 +151,8 @@ describe("ApplicationWizard — review step", () => {
 
 // ---- Submit flow with MSW (Part 4) ------------------------------------
 describe("ApplicationWizard — submit flow", () => {
-  // Test 8
+
+  // Test 8  submit successfully, the wizard resets to step 1 and fields are empty
   it("resets to step 1 with cleared fields after a successful submission", async () => {
     const user = userEvent.setup();
     renderWithProviders(<ApplicationWizard {...props} />);
@@ -163,7 +166,7 @@ describe("ApplicationWizard — submit flow", () => {
     expect(screen.getByLabelText(/full name/i)).toHaveValue("");
   });
 
-  // Test 9
+  // Test 9 force the server to return a 500 error, submit, and your values are still there (form did not reset)
   it("keeps the entered values when the API returns an error", async () => {
     // Force the submit endpoint to fail for this test only.
     server.use(

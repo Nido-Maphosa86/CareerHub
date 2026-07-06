@@ -8,6 +8,9 @@
 
 import { http, HttpResponse } from "msw";
 
+
+//This setup makes sure the tests can run the full submit/close/login 
+// flows without needing a real backend. Each handler matches the same URLs your API client uses, so tests stay consistent
 const API = process.env.NEXT_PUBLIC_API_URL;
 
 export const handlers = [
