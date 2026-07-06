@@ -25,6 +25,8 @@ import { SearchX, Inbox } from "lucide-react";
 // per-request. Individual job titles live on /jobs/[id] and use generateMetadata.
 // The URL-driven filters (?q=...) change what is shown but not the page's
 // identity for search engines — the canonical page is always "Browse Jobs".
+
+//assignment3.3 defines the static metadata for the jobs page, which is combined with the layout's template to produce the final title and description for SEO.
 export const metadata: Metadata = {
   title: "Browse Jobs",
   description:

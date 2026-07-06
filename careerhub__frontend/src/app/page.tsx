@@ -25,6 +25,9 @@ import { ArrowRight, Briefcase, LayoutDashboard } from "lucide-react";
 // exported `title: "Jobs"`. Home is a special case: we want the full brand name
 // as the tab title, which is already the layout's `default`, so we override with
 // a specific string instead.
+
+//assigment3.3 defines the static metadata for home page
+
 export const metadata: Metadata = {
   title: "CareerHub — Find Your Next Role",
   description:
